@@ -20,7 +20,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 .stagger.visible{opacity:1;transform:translateY(0)}
 h2{font-family:var(--mono);font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
 h3{font-family:var(--sans);font-size:32px;font-weight:700;line-height:1.25;margin-bottom:16px;max-width:760px}
-h4{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;margin:20px 0 8px 0}
+h4{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;margin:24px 0 8px 0}
 p{font-size:18px;max-width:720px;margin-bottom:14px}
 .secondary{color:var(--text-secondary);font-size:15px}
 .caption{color:var(--text-secondary);font-size:14px;margin-top:6px;max-width:720px;line-height:1.55}
@@ -54,8 +54,10 @@ td.good{color:var(--green);font-weight:600}
 td.bad{color:var(--accent);font-weight:500}
 td.neutral{color:var(--text-secondary)}
 code{font-family:var(--mono);font-size:14px;background:var(--code-bg);padding:2px 6px;border-radius:4px}
-.prompt-box{font-family:var(--mono);font-size:14px;background:var(--code-bg);border-radius:6px;padding:14px 18px;margin:14px 0;max-width:720px;line-height:1.65;position:relative;overflow-wrap:break-word}
+.prompt-box{font-family:var(--mono);font-size:13.5px;background:var(--code-bg);border-radius:6px;padding:14px 18px;margin:14px 0;max-width:720px;line-height:1.65;position:relative;overflow-wrap:break-word;white-space:pre-wrap}
 .prompt-box::before{content:attr(data-label);font-family:var(--mono);font-size:9px;font-weight:500;color:var(--accent);letter-spacing:.08em;position:absolute;top:-8px;left:14px;background:var(--bg);padding:0 6px}
+.scene.dark .prompt-box{background:#2a2a2a;color:#ddd}
+.scene.dark .prompt-box::before{background:#1a1a1a}
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0;max-width:760px}
 .stat-box{background:var(--code-bg);border-radius:6px;padding:14px 16px}
 .stat-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary)}
@@ -79,6 +81,7 @@ code{font-family:var(--mono);font-size:14px;background:var(--code-bg);padding:2p
 .timeline-item.pending::before{background:var(--bg);border-color:var(--border)}
 .timeline-label{font-family:var(--mono);font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em}
 .timeline-desc{font-size:16px;margin-top:2px}
+.fix-num{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:700;color:#fff;background:var(--accent);border-radius:4px;padding:2px 8px;margin-right:6px;letter-spacing:.03em;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -89,119 +92,221 @@ code{font-family:var(--mono);font-size:14px;background:var(--code-bg);padding:2p
 <section class="scene dark" id="s0">
   <div class="chapter-num stagger">18</div>
   <h2 class="stagger">Generalization-Preserving Fine-tuning of BioM3 · Didactic Note 18</h2>
-  <h3 class="stagger">PenCL on Aurora: porting contrastive pretraining to Intel XPU</h3>
-  <p class="stagger">PenCL retraining requires the full 49.8 million pair corpus to pass through both ESM2 (650M parameters) and PubMedBERT (100M parameters) for 10 epochs, with contrastive and masked-language losses computed on every batch. This is a multi-day distributed training job. Aurora — the ALCF exascale system with 10,624 nodes of Intel Ponte Vecchio GPUs — provides the scale. This note documents the port from NVIDIA CUDA to Intel XPU: the failures, the fixes, and the path from one GPU tile to multi-node production.</p>
+  <h3 class="stagger">PenCL on Aurora: porting contrastive pretraining from CUDA to Intel XPU</h3>
+  <p class="stagger">This note documents the complete port of PenCL — a contrastive learning model that jointly embeds protein sequences and text descriptions — from NVIDIA CUDA to Intel XPU on the ALCF Aurora supercomputer. PenCL retraining requires 49.8 million text-protein pairs to pass through ESM2 (650M parameters) and PubMedBERT (100M parameters) for 10 epochs, with contrastive and masked-language losses computed on every batch. Aurora provides the scale: 10,624 nodes of Intel Ponte Vecchio GPUs. But CUDA code does not run on XPU. This note catalogs every failure we encountered and the fix for each — at the level of detail needed for someone facing the same problems to solve them.</p>
   <div class="meta stagger">
     <span>Ranganathan Lab · Center for Physics of Evolving Systems · University of Chicago</span>
     <span>BioM3 ProteoScribe · Aurora Deployment · April 2026</span>
   </div>
 </section>
 
-<!-- ===== SECTION 1: WHY AURORA ===== -->
+<!-- ===== SECTION 1: THE LANDSCAPE ===== -->
 <section class="scene" id="s1">
-  <h2 class="stagger">Section 1 · Why Aurora</h2>
-  <h3 class="stagger">The training job exceeds what any single GPU can deliver</h3>
+  <h2 class="stagger">Section 1 · The landscape</h2>
+  <h3 class="stagger">Aurora hardware, the software stack, and why this port was non-trivial</h3>
 
-  <p class="stagger">PenCL training iterates through 5.05 million SwissProt rows per epoch, each paired with a randomly sampled Pfam protein from the same family. At each step, the model processes both proteins through ESM2 (33 transformer layers, 650M parameters) and both text descriptions through PubMedBERT (12 transformer layers, 100M parameters), projects both into a shared 256-dimensional space, and computes four losses: global contrastive alignment (ℒ<sub>GC</sub>), protein family contrastive (ℒ<sub>PFC</sub>), and two masked-language objectives (ℒ<sub>bML</sub>, ℒ<sub>pML</sub>).</p>
+  <p class="stagger">Aurora is the first exascale system built entirely on Intel GPUs. Each node contains 6 Intel Data Center GPU Max 1550 (Ponte Vecchio) — each with 2 compute tiles, 128 GB HBM2e, and 128 Xe-HPC cores. The two tiles within a GPU share HBM but each is an independent compute unit: it gets its own process, its own device address, its own memory allocation. For distributed training, 1 tile = 1 rank. A single Aurora node has 12 ranks, 768 GB of HBM, ~1 TB of DDR5 system memory, and 8 Slingshot-11 NICs for inter-node communication.</p>
 
-  <p class="stagger">On a single NVIDIA A100, one epoch takes roughly 18 hours. Ten epochs — the minimum for the embedding geometry to reshape — would take a week. This is acceptable for a one-off training run, but we are running a controlled experiment: Run 1 (corpus diversity alone) and Run 2 (corpus + sector annotations + ℒ<sub>sector</sub>), plus potential hyperparameter sweeps. The experiment needs parallelism.</p>
+  <h4 class="stagger">Software environment</h4>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Component</th><th>Polaris (original)</th><th>Aurora</th></tr>
+      <tr><td>GPU</td><td>NVIDIA A100-40GB (CUDA)</td><td>Intel Max 1550 (XPU/IPEX)</td></tr>
+      <tr><td>PyTorch</td><td>2.0.1</td><td>2.10.0 (with IPEX 2.10.10)</td></tr>
+      <tr><td>Lightning</td><td>1.9.5</td><td>2.6.1 (custom ALCF build with XPU accelerator)</td></tr>
+      <tr><td>DeepSpeed</td><td>0.9.2</td><td>0.18.5</td></tr>
+      <tr><td>Distributed backend</td><td>NCCL (NVIDIA)</td><td>XCCL (native PyTorch 2.8+)</td></tr>
+      <tr><td>Python</td><td>3.11</td><td>3.12</td></tr>
+      <tr><td>GPUs per node</td><td>4</td><td>6 (12 tiles)</td></tr>
+      <tr><td>Job scheduler</td><td>PBS</td><td>PBS + PALS (Parallel Application Launch Service)</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">Every layer of the stack changed. The GPU architecture changed from NVIDIA Ampere to Intel Ponte Vecchio. The distributed communication changed from NCCL to XCCL. The Lightning version jumped from 1.9 to 2.6, which itself introduced API changes that break old code. The Python version changed from 3.11 to 3.12. And the job launcher changed from direct <code>python3</code> invocation to <code>mpiexec</code> through PALS, which sets different environment variables and has different rank-assignment semantics than NCCL's launcher.</p>
+
+  <p class="stagger">These are not independent changes. They interact. The bf16 behavior on XPU interacts with the contrastive loss computation. The mpiexec launcher interacts with PL's DDP strategy detection. The PALS environment variables have different names than what <code>torch.distributed</code> expects by default. Porting is not a search-and-replace of <code>'cuda'</code> with <code>'xpu'</code> — it is a systematic audit of every point where the code assumes NVIDIA hardware, NVIDIA communication, or NVIDIA-era PyTorch behavior.</p>
+
+  <h4 class="stagger">Why Aurora over Polaris</h4>
 
   <div class="comparison stagger">
     <div class="comparison-box polaris">
       <h4 style="color:var(--gold)">Polaris (ALCF)</h4>
-      <p>4× NVIDIA A100 per node. CUDA + NCCL. Known to work — the original PenCL was trained here. 4-GPU DDP gives ~4× speedup. 10 epochs ≈ 2 days.</p>
+      <p>4× NVIDIA A100 per node. CUDA + NCCL. The original PenCL was trained here. Known to work. 4-GPU DDP, 10 epochs ≈ 2 days on 4 nodes.</p>
     </div>
     <div class="comparison-box aurora">
       <h4 style="color:var(--blue)">Aurora (ALCF)</h4>
-      <p>6× Intel Ponte Vecchio per node, 2 tiles each = 12 compute units. XPU + oneCCL. At 4 nodes (48 tiles), each tile at 80% of A100 speed, effective throughput ≈ 38× A100. 10 epochs ≈ 12 hours.</p>
+      <p>12 tiles per node. At 4 nodes (48 tiles), each at 80% of A100 throughput, effective throughput ≈ 38× A100. 10 epochs ≈ 36 hours.</p>
     </div>
   </div>
 
-  <p class="stagger">Aurora's advantage is not per-tile performance — each tile runs at roughly 80% of an A100. The advantage is density: 12 tiles per node versus 4 GPUs. At equal node count, Aurora provides 3× more parallelism. At 4 nodes, the effective throughput makes 10-epoch experiments feasible in half a day instead of two days.</p>
+  <p class="stagger">Aurora's advantage is density: 12 compute units per node versus 4. At equal node count, Aurora provides 3× more parallelism. For an experiment that requires multiple training runs (Run 1: corpus diversity alone; Run 2: corpus + sector loss), the difference between 2-day and 36-hour turnaround compounds.</p>
 </section>
 
-<!-- ===== SECTION 2: THE PORT ===== -->
+<!-- ===== SECTION 2: INFERENCE PORT ===== -->
 <section class="scene" id="s2">
-  <h2 class="stagger">Section 2 · The port</h2>
-  <h3 class="stagger">CUDA to XPU is not a search-and-replace</h3>
+  <h2 class="stagger">Section 2 · The inference port</h2>
+  <h3 class="stagger">Six fixes to run the forward pass on XPU</h3>
 
-  <p class="stagger">BioM3's codebase was written for NVIDIA GPUs. Porting to Aurora's Intel XPU requires changes at three levels: device placement (where tensors live), numerical operations (what happens to them), and distributed communication (how GPUs talk to each other). The first two were solved during the March 2026 inference port. The third — distributed training — is the subject of this note.</p>
+  <p class="stagger">In March 2026, we ported the full BioM3 pipeline (Stage 1 PenCL → Stage 2 Facilitator → Stage 3 ProteoScribe) for inference on a single XPU tile. This was the easier half of the port — inference is a forward pass with no gradient computation, no optimizer step, no distributed communication. Even so, it required six patches, each revealing a different assumption about the NVIDIA ecosystem baked into the codebase.</p>
 
-  <h4 class="stagger">What the March inference port solved</h4>
+  <h4 class="stagger"><span class="fix-num">FIX 1</span> pynvml — NVIDIA monitoring crashes on XPU</h4>
 
-  <div class="table-wrap stagger">
-    <table>
-      <tr><th>Fix</th><th>Issue</th><th>Solution</th></tr>
-      <tr><td><code>pynvml</code> try/except</td><td>NVIDIA monitoring library crashes on XPU</td><td>Wrap import in try/except, return 0 if unavailable</td></tr>
-      <tr><td><code>accelerator='auto'</code></td><td>PL Trainer hardcoded <code>'cuda'</code></td><td>Custom Lightning from ALCF auto-detects XPU</td></tr>
-      <tr><td><code>type(model).load_from_checkpoint()</code></td><td>PL 2.6 API change from PL 1.9</td><td>Use class method instead of instance method</td></tr>
-      <tr><td><code>strict=False</code></td><td>Newer transformers adds <code>position_ids</code> key</td><td>Ignore missing keys during checkpoint load</td></tr>
-      <tr><td>Device auto-detect in preprocess.py</td><td>Hardcoded <code>'cuda'</code> in dataset</td><td>Auto-detect xpu/cuda/cpu</td></tr>
-      <tr><td><code>.to(device).float()</code></td><td>XPU auto-casts inputs to bf16</td><td>Explicit fp32 cast after device placement</td></tr>
-    </table>
+  <p class="stagger"><code>pynvml</code> is NVIDIA's GPU monitoring library. It calls into the NVIDIA driver at import time via <code>nvmlInit()</code>. On XPU, there is no NVIDIA driver — the import crashes with a <code>NVMLError_LibraryNotFound</code>. The library is used in three <code>helper_funcs.py</code> files (one per pipeline stage) for logging GPU memory usage during training and inference.</p>
+
+  <div class="prompt-box stagger" data-label="FIX — WRAP PYNVML IMPORT">
+try:
+    import pynvml
+    pynvml.nvmlInit()
+    HAS_PYNVML = True
+except Exception:
+    HAS_PYNVML = False
+
+def print_gpu_initialization():
+    if not HAS_PYNVML:
+        return 0.0
+    # ... existing pynvml monitoring code ...</div>
+
+  <p class="stagger">The fix wraps the import in a try/except and guards every <code>pynvml</code> call with a boolean flag. This pattern is standard for optional hardware-specific imports, but <code>pynvml</code> was an unconditional import in three files — it had never needed to be optional because the code had only ever run on NVIDIA hardware.</p>
+
+  <h4 class="stagger"><span class="fix-num">FIX 2</span> Hardcoded accelerator — PL cannot find 'cuda'</h4>
+
+  <p class="stagger">PyTorch Lightning's <code>Trainer</code> was initialized with <code>accelerator='cuda'</code> in two files (Stage 1 and Stage 2 inference scripts). On XPU, this crashes because PL looks for CUDA devices and finds none. The ALCF's custom Lightning build adds an <code>XPUAccelerator</code> class that registers itself under <code>accelerator='auto'</code>. Changing the hardcoded string to <code>'auto'</code> lets PL's device-detection logic find XPU.</p>
+
+  <div class="key-finding stagger">
+    <p><strong>Pattern: never hardcode the accelerator string.</strong> Code that specifies <code>'cuda'</code> explicitly is code that cannot run on any other hardware. <code>'auto'</code> defers to PL's registry, which on Aurora finds XPU, on Polaris finds CUDA, and on CPU-only machines finds CPU. The same code runs everywhere.</p>
   </div>
 
-  <p class="stagger">After these fixes, the full BioM3 pipeline — Stage 1 (PenCL) through Stage 2 (Facilitator) through Stage 3 (ProteoScribe) — ran end-to-end on a single XPU tile, generating functional SH3 domains from text prompts at 80% of A100 inference speed.</p>
+  <h4 class="stagger"><span class="fix-num">FIX 3</span> Lightning 1.9 → 2.6 API change</h4>
+
+  <p class="stagger">The Polaris codebase used PL 1.9's instance method: <code>model.load_from_checkpoint(path)</code>. PL 2.6 removed this — the correct call is the class method: <code>type(model).load_from_checkpoint(path)</code>. This is not an XPU issue per se, but the Lightning version on Aurora (2.6, the ALCF custom build) is different from Polaris (1.9), so the port exposed it. Three files needed this change — one per pipeline stage.</p>
+
+  <h4 class="stagger"><span class="fix-num">FIX 4</span> strict=False — new keys in newer transformers</h4>
+
+  <p class="stagger">Aurora's environment has a newer version of the <code>transformers</code> library than Polaris. The newer version adds a <code>position_ids</code> buffer to BERT-family models that was not present when our checkpoint was saved. Loading the checkpoint with <code>strict=True</code> (the default) raises a <code>RuntimeError</code> for the unexpected key. Setting <code>strict=False</code> in <code>load_from_checkpoint()</code> ignores the mismatch. The new buffer is initialized correctly by the model — it doesn't carry learned parameters, so the missing key has no effect on model behavior.</p>
+
+  <h4 class="stagger"><span class="fix-num">FIX 5</span> Hardcoded 'cuda' in data preprocessing</h4>
+
+  <p class="stagger"><code>preprocess.py</code> — the dataset class that tokenizes proteins and text for PenCL — contained <code>device = 'cuda'</code> for placing tensors. On XPU, this fails silently or crashes depending on the operation. The fix replaces the hardcoded string with auto-detection:</p>
+
+  <div class="prompt-box stagger" data-label="DEVICE AUTO-DETECTION">
+if torch.xpu.is_available():
+    device = 'xpu'
+elif torch.cuda.is_available():
+    device = 'cuda'
+else:
+    device = 'cpu'</div>
+
+  <h4 class="stagger"><span class="fix-num">FIX 6</span> XPU silent auto-cast to bf16</h4>
+
+  <p class="stagger">This was the most insidious fix. On NVIDIA hardware, tensors moved to the GPU with <code>.to(device)</code> stay in their original dtype (typically fp32). On Intel XPU, the Intel Extension for PyTorch (IPEX) can silently auto-cast inputs to bfloat16 for performance — a default behavior inherited from the inference-optimized IPEX configuration. The PenCL model expects fp32 inputs. When IPEX auto-casts to bf16, the model's fp32 weights and bf16 inputs produce a dtype mismatch in matrix multiplications, leading to silent incorrect results or explicit crashes depending on the operation.</p>
+
+  <div class="prompt-box stagger" data-label="FIX — EXPLICIT FP32 CAST">
+# Before (works on CUDA):
+tensor = tensor.to(device)
+
+# After (works on both CUDA and XPU):
+tensor = tensor.to(device).float()</div>
+
+  <p class="stagger">The <code>.float()</code> call is a no-op on CUDA (the tensor is already fp32) and a necessary correction on XPU (forcing the tensor back to fp32 after the device placement). This fix was applied in <code>preprocess.py</code> wherever input tensors are moved to the device.</p>
+
+  <h4 class="stagger">Result: full pipeline on XPU</h4>
+
+  <p class="stagger">After these six fixes, the full BioM3 pipeline ran end-to-end on a single XPU tile: text prompt → PenCL embedding → Facilitator latent code → ProteoScribe sequence. The generated SH3 domain contained all hallmark motifs (ALYSYD, YEISFV, KWW, GICPSNYV, VSDIEG) with a Q-fraction of 0.032. Per-tile inference speed was ~39 iterations/second versus ~48 on an A100 — approximately 80% of NVIDIA throughput, consistent with published Ponte Vecchio benchmarks for transformer workloads.</p>
 </section>
 
-<!-- ===== SECTION 3: THE TRAINING-SPECIFIC PROBLEMS ===== -->
+<!-- ===== SECTION 3: TRAINING-SPECIFIC PROBLEMS ===== -->
 <section class="scene" id="s3">
   <h2 class="stagger">Section 3 · Training-specific problems</h2>
-  <h3 class="stagger">Inference worked; training required five additional fixes</h3>
+  <h3 class="stagger">Five additional fixes for the backward pass, loss computation, and training loop</h3>
 
-  <p class="stagger">Inference is a forward pass. Training adds the backward pass, the optimizer step, the contrastive loss computation with its infinity-masked diagonal, and — critically — the distributed communication calls that synchronize gradients across GPUs. Each of these introduced failures on XPU that did not appear during inference.</p>
+  <p class="stagger">Inference is a forward pass. Training adds the backward pass, the optimizer step, and — for contrastive learning — the synchronization of embeddings across GPUs so that the loss function can compare every protein against every text description in the global batch. Each of these introduced failures on XPU that did not appear during inference.</p>
 
-  <h4 class="stagger">Fix 1: Distributed guards on barrier and all_gather</h4>
+  <h4 class="stagger"><span class="fix-num">FIX 7</span> Distributed guards — 25 calls that crash on a single tile</h4>
 
-  <p class="stagger">The PenCL training code was written for multi-GPU NVIDIA DDP. Every training step calls <code>dist.barrier()</code> (wait for all GPUs to synchronize) and <code>self.all_gather()</code> (collect embeddings from all GPUs for the contrastive loss) — 13 barrier calls and 12 all_gather calls across the three PL wrapper classes. On a single XPU tile without a DDP process group, every one of these hangs or crashes.</p>
+  <p class="stagger">PenCL's training code was written for multi-GPU DDP on NVIDIA hardware. Throughout the training step and validation step, the code calls <code>dist.barrier()</code> (synchronize all ranks before proceeding) and <code>self.all_gather()</code> (collect embeddings from all GPUs so the contrastive loss sees the full global batch). These calls require an initialized distributed process group. On a single XPU tile without DDP, <code>dist.barrier()</code> hangs indefinitely and <code>self.all_gather()</code> crashes.</p>
 
-  <div class="prompt-box stagger" data-label="SOLUTION">
+  <p class="stagger">The call count across the three PL wrapper classes: 13 <code>dist.barrier()</code> calls and 12 <code>self.all_gather()</code> calls. The primary class, <code>pfam_PL_PEN_CL</code> (selected by <code>--dataset_type pfam</code>), has 5 barriers and 4 all_gathers in <code>training_step</code>, 4 barriers and 4 all_gathers in <code>validation_step</code>. All three classes needed the fix — PL may reference parent or sibling class methods during training.</p>
+
+  <div class="prompt-box stagger" data-label="DISTRIBUTED GUARD FUNCTIONS">
 def _safe_barrier():
+    """Only call dist.barrier() if a process group exists."""
     if dist.is_initialized():
         dist.barrier()
 
 def _safe_all_gather(module, tensor, sync_grads=True):
+    """In single-GPU mode, return the tensor unchanged.
+    In DDP mode, collect from all ranks."""
     if dist.is_initialized():
         return module.all_gather(tensor, sync_grads=sync_grads)
     return tensor</div>
 
-  <p class="stagger">Global replacement: every <code>dist.barrier()</code> becomes <code>_safe_barrier()</code>, every <code>self.all_gather()</code> becomes <code>_safe_all_gather(self, ...)</code>. In single-tile mode, the guards short-circuit. In multi-tile mode with DDP initialized, they pass through to the real distributed calls.</p>
+  <p class="stagger">These functions were added at the top of <code>PL_wrapper.py</code>, and every <code>dist.barrier()</code> was globally replaced with <code>_safe_barrier()</code>, every <code>self.all_gather(x, sync_grads=True)</code> with <code>_safe_all_gather(self, x, sync_grads=True)</code>. In single-tile mode, the guards short-circuit and the code runs without distributed communication. In multi-tile mode with the XCCL process group initialized, they pass through to the real distributed primitives.</p>
 
-  <h4 class="stagger">Fix 2: bf16 infinity masking</h4>
-
-  <p class="stagger">The contrastive loss masks the diagonal of the logits matrix with negative infinity — excluding self-comparisons so the model learns to match text to the <em>correct</em> protein, not itself. On CUDA with fp32, <code>float('-inf')</code> is representable. On XPU, the tensor can silently auto-cast to bf16, where infinity is not representable — causing a crash in <code>set_inf()</code> inside <code>compute_inter_loss()</code>.</p>
-
-  <p class="stagger">The fix: cast to fp32 before applying the infinity mask, or set precision to <code>'32'</code> globally to avoid bf16 entirely. We chose the latter for the initial port — correctness first, performance later.</p>
-
-  <h4 class="stagger">Fix 3: Missing import</h4>
-
-  <p class="stagger">The memory logging function <code>print_memory_usage()</code> in <code>helper_funcs.py</code> called <code>os.getpid()</code> without importing <code>os</code>. This was masked on CUDA because <code>pynvml</code> was imported first (which imports <code>os</code> as a side effect). On XPU, with <code>pynvml</code> wrapped in a try/except, the import was missing. The training loop completed the forward pass, backward pass, and loss computation — then crashed on the logging call at the end of the step.</p>
-
-  <div class="warning stagger">
-    <p><strong>Lost outputs.</strong> Two debug jobs ran with the bf16 and barrier fixes but before the <code>import os</code> fix. Both crashed at the same point (the logging call after the first training step) but wrote their logs to the same path, overwriting each other. We diagnosed the issue only after switching to unique log filenames with <code>-j oe</code> (join stdout/stderr) in the PBS script. Lesson: always use unique log paths on shared job schedulers.</p>
+  <div class="callout stagger">
+    <p><strong>Why not just initialize a trivial 1-rank process group?</strong> This would work, but it adds unnecessary complexity and overhead (a process group has bookkeeping cost even with one rank). The guard pattern is cleaner: the code explicitly states "only synchronize if there are multiple ranks to synchronize with." It also makes the single-tile debug mode genuinely single-process, which simplifies profiling and debugging.</p>
   </div>
 
-  <h4 class="stagger">Fix 4: Autocast disabled</h4>
+  <h4 class="stagger"><span class="fix-num">FIX 8</span> bf16 infinity masking — the contrastive loss diagonal</h4>
 
-  <p class="stagger">PyTorch Lightning's mixed-precision plugin checks for CUDA to enable <code>torch.autocast</code>. On XPU, the check fails and autocast is silently disabled, leaving the model in full fp32. This is correct but slow. The XPU-native autocast (<code>torch.autocast(device_type="xpu", dtype=torch.bfloat16)</code>) exists in PyTorch 2.10 but must be invoked manually — PL's plugin doesn't know about it. For the initial port, we set <code>precision='32'</code> to remove the ambiguity entirely.</p>
+  <p class="stagger">Contrastive learning computes a similarity matrix between all text embeddings and all protein embeddings in a batch. The diagonal entries — where each text is compared to its own paired protein — must be masked out so the model learns to match text to the <em>correct</em> protein, not to itself. The standard technique fills the diagonal with <code>float('-inf')</code>, which becomes −∞ after softmax, producing zero probability for self-matches.</p>
 
-  <h4 class="stagger">Fix 5: Trainer configuration</h4>
+  <p class="stagger">On CUDA in fp32, <code>float('-inf')</code> is representable as the IEEE 754 negative infinity value. On XPU, the tensor may be in bfloat16 — either because of IPEX auto-casting or because mixed precision is enabled. bf16 has only 8 exponent bits and cannot represent infinity. The <code>fill_diagonal_(float('-inf'))</code> call in <code>compute_inter_loss()</code> in <code>model.py</code> raises a runtime error or produces NaN, depending on the operation sequence.</p>
 
-  <p class="stagger">The working Trainer configuration for single-tile XPU:</p>
+  <p class="stagger">The fix casts the logits tensor to fp32 before applying the infinity mask. Alternatively, setting <code>precision='32'</code> in the Trainer eliminates bf16 entirely. We chose the latter for the initial port — correctness first, mixed-precision optimization later.</p>
 
-  <div class="prompt-box stagger" data-label="TRAINER CONFIG">
-accelerator = 'auto'     # custom PL from ALCF auto-detects XPU
-strategy    = 'auto'     # no DDP for single tile
-precision   = '32'       # fp32 everywhere, no autocast ambiguity
-devices     = 1          # one tile</div>
+  <div class="warning stagger">
+    <p><strong>bf16 infinity is a recurring XPU pitfall.</strong> Any code that uses <code>float('-inf')</code> or <code>float('inf')</code> as sentinel values in masks, attention scores, or padding tokens is vulnerable. On CUDA, these sentinels work because fp32 is the default. On XPU with IPEX, the dtype may silently change. Audit every use of infinity in any codebase being ported.</p>
+  </div>
+
+  <h4 class="stagger"><span class="fix-num">FIX 9</span> Missing import — a side effect of Fix 1</h4>
+
+  <p class="stagger">The memory logging function <code>print_memory_usage()</code> in <code>helper_funcs.py</code> calls <code>os.getpid()</code>. On CUDA, <code>pynvml</code> was imported unconditionally at the top of the file, and <code>pynvml</code> imports <code>os</code> as a side effect. After Fix 1 wrapped <code>pynvml</code> in a try/except, the <code>os</code> import was no longer guaranteed. On XPU, with no NVIDIA driver, the try/except catches the pynvml failure and skips the import — including the transitive <code>os</code> import.</p>
+
+  <p class="stagger">The failure mode was particularly frustrating: the training loop completed the forward pass, the backward pass, and the loss computation — then crashed on the <code>print_memory_usage()</code> logging call at the end of the training step, with a <code>NameError: name 'os' is not defined</code>. Adding <code>import os</code> at the top of <code>helper_funcs.py</code> fixed it.</p>
+
+  <div class="warning stagger">
+    <p><strong>Lost outputs.</strong> Two debug jobs ran with Fixes 7–8 but before Fix 9. Both crashed at the same point but wrote their logs to the same path, overwriting each other. We only diagnosed the issue after switching to unique log filenames with a timestamp suffix in the PBS script. Lesson: on shared job schedulers, always include <code>$(date +%s)</code> or a job ID in the log path.</p>
+  </div>
+
+  <h4 class="stagger"><span class="fix-num">FIX 10</span> Autocast disabled — PL does not know about XPU</h4>
+
+  <p class="stagger">PyTorch Lightning's mixed-precision plugin checks for CUDA to decide whether to enable <code>torch.autocast</code>. On XPU, the CUDA check fails and autocast is silently disabled, leaving the model in full fp32 regardless of the <code>precision</code> argument. The XPU-native autocast (<code>torch.autocast(device_type="xpu", dtype=torch.bfloat16)</code>) exists in PyTorch 2.10 and works correctly, but PL's precision plugin does not invoke it — the ALCF's custom Lightning build adds XPU accelerator support but does not extend the precision plugins.</p>
+
+  <p class="stagger">For the initial port, we set <code>precision='32'</code> globally to eliminate the ambiguity. This means every operation runs in fp32 — slower than bf16 mixed precision, but numerically identical to the original CUDA training. Mixed-precision optimization is deferred to after the distributed training pipeline is validated.</p>
+
+  <h4 class="stagger"><span class="fix-num">FIX 11</span> Trainer configuration</h4>
+
+  <p class="stagger">The combined effect of Fixes 7–10 produces this Trainer configuration for single-tile XPU training:</p>
+
+  <div class="prompt-box stagger" data-label="WORKING SINGLE-TILE TRAINER">
+trainer = pl.Trainer(
+    max_epochs=args.epochs,
+    devices=1,                    # one tile
+    accelerator='auto',           # custom PL auto-detects XPU
+    strategy='auto',              # no DDP for single tile
+    precision='32',               # fp32 everywhere — no autocast ambiguity
+    num_nodes=1,
+    callbacks=[checkpoint_callback, lr_monitor],
+    logger=[tb_logger],
+    log_every_n_steps=1,
+    accumulate_grad_batches=args.acc_grad_batches,
+    enable_progress_bar=True,
+    enable_checkpointing=True,
+    benchmark=False,              # disable cuDNN benchmark (irrelevant on XPU)
+)</div>
+
+  <div class="key-finding stagger">
+    <p><strong>The complete fix catalog — 11 patches for CUDA → XPU.</strong> Fixes 1–6 solved inference. Fixes 7–11 solved single-tile training. Each fix addresses a distinct assumption about NVIDIA hardware or NVIDIA-era library behavior that was baked into the codebase. Together, they make the training loop device-agnostic: the same code runs on CUDA, XPU, and CPU without conditional branches in the training logic.</p>
+  </div>
 </section>
 
-<!-- ===== SECTION 4: CONFIRMATION ===== -->
+<!-- ===== SECTION 4: SINGLE-TILE CONFIRMATION ===== -->
 <section class="scene" id="s4">
   <h2 class="stagger">Section 4 · Single-tile confirmation</h2>
   <h3 class="stagger">First loss values from PenCL on Intel XPU</h3>
 
-  <p class="stagger">On April 13, 2026, job 8434430 on the Aurora debug queue produced the first training loss values from PenCL on Intel XPU hardware. All four loss components computed correctly.</p>
+  <p class="stagger">On April 13, 2026, job 8434430 on the Aurora debug queue produced the first training loss values from PenCL on Intel XPU hardware. All four loss components computed correctly across 3 training steps.</p>
 
   <div class="table-wrap stagger">
     <table>
@@ -212,7 +317,7 @@ devices     = 1          # one tile</div>
     </table>
   </div>
 
-  <p class="stagger">The alignment loss (ℒ<sub>align</sub>) fluctuates between 5 and 12 — expected for an untrained model with batch size 8, where random alignment would give log(8) ≈ 2.1 and the model has not yet learned text-protein correspondence. The masked-language losses (ℒ<sub>text mask</sub> ≈ 3.0, ℒ<sub>seq mask</sub> ≈ 1.7) are lower because ESM2 and PubMedBERT are pretrained — they already know protein and biomedical text structure, so the masked prediction task starts from a better baseline.</p>
+  <p class="stagger">The loss values confirm that every component of the training loop executes correctly on XPU. The alignment loss (ℒ<sub>align</sub>) fluctuates between 5 and 12 — expected for an untrained model with batch size 8, where random alignment would give log(8) ≈ 2.1 and the model has not yet learned text-protein correspondence. The masked-language losses (ℒ<sub>text mask</sub> ≈ 3.0, ℒ<sub>seq mask</sub> ≈ 1.7) start lower because ESM2 and PubMedBERT are pretrained — they already know protein and biomedical text structure.</p>
 
   <div class="stats-grid stagger">
     <div class="stat-box"><div class="stat-label">Parameters total</div><div class="stat-value">761M</div></div>
@@ -221,62 +326,279 @@ devices     = 1          # one tile</div>
     <div class="stat-box"><div class="stat-label">RAM usage</div><div class="stat-value blue">110 GB</div></div>
   </div>
 
-  <p class="stagger">The 13 minutes per step is dominated by JIT kernel compilation on the first few batches — Intel's compiler generating optimized XPU kernels for every operation in ESM2 and PubMedBERT. After warmup, subsequent steps will be significantly faster. But single-tile fp32 is fundamentally too slow for production: 6,577 steps per epoch × 13 minutes = 57 days per epoch. Multi-tile distributed training is not optional.</p>
+  <p class="stagger">The 13 minutes per step is dominated by JIT kernel compilation — Intel's oneAPI compiler generating optimized XPU microcode for every unique operation shape in ESM2's 33 transformer layers and PubMedBERT's 12 layers on the first few batches. After warmup, subsequent steps will be significantly faster. But single-tile fp32 is fundamentally too slow for production: 6,577 steps per epoch × 13 minutes = 57 days per epoch. Multi-tile distributed training is not optional.</p>
 
   <div class="key-finding stagger">
-    <p><strong>The code is clean.</strong> Every component of the PenCL training loop works on Intel XPU: ESM2 forward and backward, PubMedBERT forward and backward, contrastive loss with infinity masking, intra-modal loss, masked-language losses, optimizer step, PL logging, and checkpointing. The remaining work is purely about distributed communication — scaling from one tile to many.</p>
+    <p><strong>The code is clean.</strong> ESM2 forward and backward, PubMedBERT forward and backward, contrastive loss with infinity masking, intra-modal loss, masked-language losses, optimizer step, PL logging, and checkpointing — every component of the PenCL training loop works on Intel XPU. The remaining work is distributed communication: scaling from one tile to many.</p>
   </div>
 </section>
 
-<!-- ===== SECTION 5: SCALING PATH ===== -->
+<!-- ===== SECTION 5: XCCL AND MPIEXEC ===== -->
 <section class="scene" id="s5">
-  <h2 class="stagger">Section 5 · The scaling path</h2>
-  <h3 class="stagger">From one tile to 48: three phases of distributed training</h3>
+  <h2 class="stagger">Section 5 · Distributed training on XPU</h2>
+  <h3 class="stagger">XCCL, mpiexec, and the decision to bypass Lightning's DDP launcher</h3>
 
-  <p class="stagger">Aurora nodes contain 6 Intel Ponte Vecchio GPUs, each with 2 compute tiles — 12 tiles per node, each with ~64 GB of HBM. For distributed data-parallel (DDP) training, each tile is one rank: it holds a complete copy of the model, processes a different batch of data, and exchanges gradients with all other ranks after each step.</p>
+  <p class="stagger">On NVIDIA hardware, distributed training is straightforward: PL launches N processes via <code>torch.distributed.launch</code>, each process finds its GPU via <code>LOCAL_RANK</code>, and NCCL handles inter-GPU communication with near-zero configuration. On Aurora, nothing about this workflow transfers directly.</p>
 
-  <p class="stagger">PyTorch 2.8 introduced native support for Intel GPU distributed training via the XCCL backend — a direct integration of Intel's oneCCL communication library into PyTorch's distributed framework. This replaces the older external <code>oneccl_bindings_for_pytorch</code> package. XCCL has been validated at scale on Aurora: up to 2,048 nodes (24,576 ranks) with 89% scaling efficiency for DDP workloads.</p>
+  <h4 class="stagger">The XCCL backend</h4>
 
-  <div class="timeline stagger">
-    <div class="timeline-item done">
-      <div class="timeline-label">Phase 0 — Single tile (confirmed)</div>
-      <div class="timeline-desc">1 tile, fp32, no DDP. Validates the training loop. 13 min/step.</div>
-    </div>
-    <div class="timeline-item active">
-      <div class="timeline-label">Phase 1 — Single node, 12 tiles</div>
-      <div class="timeline-desc">mpiexec launches 12 ranks, one per tile. <code>torch.distributed.init_process_group(backend="xccl")</code> before PL. Each rank runs PL with <code>devices=1, strategy='ddp'</code>. Intra-node communication via shared memory.</div>
-    </div>
-    <div class="timeline-item pending">
-      <div class="timeline-label">Phase 2 — Multi-node, 4 × 12 = 48 tiles</div>
-      <div class="timeline-desc">Same mpiexec pattern across 4 nodes. <code>MASTER_ADDR</code> from <code>$PBS_NODEFILE</code>. Inter-node communication via Slingshot fabric. Effective batch size: 48 × 8 × 2 = 768.</div>
-    </div>
-    <div class="timeline-item pending">
-      <div class="timeline-label">Phase 3 — Production Run 1</div>
-      <div class="timeline-desc">4 nodes, 36-hour walltime, 10 epochs. Checkpoint every epoch. Resume from <code>last.ckpt</code> if interrupted. Embedding geometry evaluation at epochs 2, 5, 10.</div>
-    </div>
+  <p class="stagger">PyTorch 2.8 introduced native Intel GPU distributed support via the XCCL backend — a direct integration of Intel's oneAPI Collective Communications Library (oneCCL) into PyTorch's <code>torch.distributed</code> framework. This is distinct from the older external package <code>oneccl_bindings_for_pytorch</code>, which required a separate install and registered under <code>backend='ccl'</code>. The native backend uses <code>backend='xccl'</code> — using the old string <code>'ccl'</code> will either fail or use a different code path. XCCL has been validated at scale on Aurora: 2,048 nodes (24,576 ranks) with 89% scaling efficiency for DDP workloads.</p>
+
+  <h4 class="stagger">Why mpiexec, not Lightning's launcher</h4>
+
+  <p class="stagger">PL's built-in DDP strategy launches worker processes internally and manages rank assignment, device mapping, and environment variables. This works on NVIDIA because PL knows how to detect CUDA devices and assign them to ranks. On Aurora's custom Lightning build, the XPU accelerator is supported but the DDP launcher is not fully integrated with PALS (Aurora's job launcher) or the tile-level affinity masking needed for Ponte Vecchio's two-tile architecture.</p>
+
+  <p class="stagger">The solution: bypass PL's process launcher entirely and use <code>mpiexec</code> directly. The PBS job script launches 12 MPI ranks per node (one per tile). Each rank is an independent Python process that manually initializes <code>torch.distributed</code> with the XCCL backend before PL sees anything. PL then detects the already-initialized process group and wraps the model in DDP transparently — it doesn't need to know how the processes were launched.</p>
+
+  <h4 class="stagger">GPU tile affinity: ZE_AFFINITY_MASK</h4>
+
+  <p class="stagger">Each MPI rank must be pinned to exactly one tile. Without pinning, all 12 ranks would see all 12 tiles and contend for the same memory. Intel's Level Zero runtime uses the <code>ZE_AFFINITY_MASK</code> environment variable to restrict which tile a process can access. With the mask set to a single tile index, <code>torch.xpu.device_count()</code> returns 1 from that rank's perspective.</p>
+
+  <div class="prompt-box stagger" data-label="SET_AFFINITY_GPU.SH">
+#!/bin/bash
+# PALS_LOCAL_RANKID: 0–11 within a node
+# ZE_AFFINITY_MASK: which tile this rank sees
+export ZE_AFFINITY_MASK=$PALS_LOCAL_RANKID
+exec "$@"</div>
+
+  <p class="stagger">The <code>exec "$@"</code> replaces the shell process with the Python command, keeping the environment variables intact. The PBS script invokes this via <code>mpiexec --cpu-bind list:... /path/to/set_affinity_gpu.sh python3 PL_training.py ...</code>.</p>
+
+  <h4 class="stagger">Manual distributed initialization</h4>
+
+  <p class="stagger">The distributed init code runs in <code>PL_training.py</code> after argument parsing but before any model or data creation. It reads rank information from PALS environment variables, exports the standard <code>torch.distributed</code> variables (<code>RANK</code>, <code>LOCAL_RANK</code>, <code>WORLD_SIZE</code>), and initializes the XCCL process group.</p>
+
+  <div class="prompt-box stagger" data-label="MANUAL DISTRIBUTED INIT — PL_TRAINING.PY">
+import os, torch, torch.distributed as dist
+
+if int(os.environ.get("WORLD_SIZE", 1)) > 1:
+    world_size = int(os.environ["WORLD_SIZE"])
+    rank       = int(os.environ["PALS_RANKID"])
+    local_rank = int(os.environ["PALS_LOCAL_RANKID"])
+
+    # Export standard vars that torch.distributed expects
+    os.environ["RANK"]       = str(rank)
+    os.environ["LOCAL_RANK"] = str(local_rank)
+
+    if not dist.is_initialized():
+        dist.init_process_group(
+            backend="xccl",       # native PyTorch 2.8+
+            init_method="env://", # reads MASTER_ADDR, MASTER_PORT
+            world_size=world_size,
+            rank=rank
+        )
+
+    # With ZE_AFFINITY_MASK, each rank sees 1 tile → always xpu:0
+    torch.xpu.set_device(0)
+    args.num_gpus = 1  # PL sees 1 device per process</div>
+
+  <p class="stagger">Three discoveries during debugging deserve detailed explanation:</p>
+
+  <div class="callout stagger">
+    <p><strong>Discovery 1: PALS_LOCAL_SIZE, not PALS_WORLD_SIZE.</strong> The PALS environment provides <code>PALS_LOCAL_SIZE</code> (ranks per node) and <code>PALS_LOCAL_RANKID</code> (rank within node), but the variable name for the global world size is inconsistent across Aurora software versions. Our PBS script exports <code>WORLD_SIZE</code> explicitly to avoid ambiguity: <code>export WORLD_SIZE=$((NNODES * 12))</code>. The init code reads <code>WORLD_SIZE</code>, not <code>PALS_WORLD_SIZE</code>.</p>
   </div>
 
-  <p class="stagger">The key architectural decision: bypass PL's DDP launcher and use <code>mpiexec</code> directly. Each MPI rank initializes <code>torch.distributed</code> with the XCCL backend using PALS environment variables (<code>PALS_WORLD_SIZE</code>, <code>PALS_RANKID</code>, <code>PALS_LOCAL_RANKID</code>) set automatically by Aurora's job scheduler. PL then sees an already-initialized process group and wraps the model in DDP transparently.</p>
+  <div class="callout stagger">
+    <p><strong>Discovery 2: the device is xpu:0, not xpu:local_rank.</strong> When <code>ZE_AFFINITY_MASK</code> isolates one tile per rank, each rank's <code>torch.xpu.device_count()</code> returns 1. The tile is always device 0 from the rank's perspective. Calling <code>torch.xpu.set_device(local_rank)</code> — which ranges from 0 to 11 — fails for ranks 1–11 because they only see one device. The affinity script handles the physical tile mapping; the Python code always addresses device 0.</p>
+  </div>
 
-  <div class="prompt-box stagger" data-label="DISTRIBUTED INIT — BEFORE PL">
-# In PL_training.py, after arg parsing, before model creation:
-if int(os.environ.get("PALS_WORLD_SIZE", 1)) > 1:
-    world_size = int(os.environ["PALS_WORLD_SIZE"])
-    rank = int(os.environ["PALS_RANKID"])
-    local_rank = int(os.environ["PALS_LOCAL_RANKID"])
-    
-    dist.init_process_group(
-        backend="xccl",          # native PyTorch 2.8+
-        init_method="env://",
-        world_size=world_size,
-        rank=rank
+  <div class="callout stagger">
+    <p><strong>Discovery 3: export WORLD_SIZE in the PBS script.</strong> <code>torch.distributed.init_process_group</code> with <code>init_method="env://"</code> reads <code>MASTER_ADDR</code>, <code>MASTER_PORT</code>, <code>RANK</code>, and <code>WORLD_SIZE</code> from environment variables. On NVIDIA systems, the launch utility sets these automatically. With mpiexec on Aurora, we must export them in the PBS script: <code>export MASTER_ADDR=$(hostname)</code> for single-node, <code>export MASTER_ADDR=$(head -1 $PBS_NODEFILE)</code> for multi-node. Without the explicit export, <code>init_process_group</code> hangs waiting for information that never arrives.</p>
+  </div>
+
+  <h4 class="stagger">Trainer configuration for multi-tile</h4>
+
+  <p class="stagger">When launched via mpiexec, each process has already joined the XCCL process group and is pinned to one tile. The PL Trainer must use <code>strategy='ddp'</code> (not <code>'auto'</code>, which would try to auto-detect and potentially re-launch processes) with <code>devices=1</code> and <code>num_nodes=1</code> (mpiexec manages the multi-rank topology, not PL).</p>
+
+  <div class="prompt-box stagger" data-label="MULTI-TILE TRAINER CONFIG">
+if dist.is_initialized():
+    trainer = pl.Trainer(
+        devices=1,                # mpiexec manages ranks
+        accelerator='auto',
+        strategy='ddp',           # PL wraps model using existing process group
+        precision='32',
+        num_nodes=1,              # mpiexec handles multi-node, not PL
+        enable_progress_bar=(int(os.environ.get("RANK", 0)) == 0),
+        ...
     )
-    torch.xpu.set_device(local_rank)</div>
+else:
+    trainer = pl.Trainer(
+        devices=args.num_gpus,
+        accelerator='auto',
+        strategy='auto',          # single-tile fallback
+        precision='32',
+        ...
+    )</div>
+
+  <p class="stagger">The <code>enable_progress_bar</code> guard ensures only rank 0 prints the progress bar — otherwise 12 processes compete for stdout and produce unreadable interleaved output.</p>
 </section>
 
-<!-- ===== SECTION 6: TRAINING MATH ===== -->
+<!-- ===== SECTION 6: VERIFICATION ===== -->
 <section class="scene" id="s6">
-  <h2 class="stagger">Section 6 · Training math</h2>
+  <h2 class="stagger">Section 6 · Verification</h2>
+  <h3 class="stagger">Three tests, from 2 ranks to 12, and the memory wall</h3>
+
+  <p class="stagger">Distributed training was brought up incrementally — not by jumping straight to 12 ranks and hoping for the best, but by testing each component in isolation before combining them.</p>
+
+  <h4 class="stagger">Test 1: XCCL 2-rank AllReduce</h4>
+
+  <p class="stagger">The minimal test: 2 MPI ranks, each creating a ones-vector on its tile, then AllReducing (summing) across both ranks. If both ranks see [2, 2, 2, 2], the XCCL backend, the affinity script, and the PALS environment variables all work correctly together.</p>
+
+  <div class="prompt-box stagger" data-label="2-RANK XCCL VERIFICATION TEST">
+# PBS: mpiexec -n 2 -ppn 2 set_affinity_gpu.sh python3 -c "
+import os, torch, torch.distributed as dist
+
+dist.init_process_group(
+    backend='xccl',
+    init_method='env://',
+    world_size=int(os.environ['WORLD_SIZE']),
+    rank=int(os.environ['PALS_RANKID'])
+)
+torch.xpu.set_device(0)  # affinity mask isolates 1 tile
+
+x = torch.ones(4, device='xpu:0')
+dist.all_reduce(x)
+print(f'Rank {os.environ["PALS_RANKID"]}: {x}')
+# Expected: both ranks print tensor([2., 2., 2., 2.])
+
+dist.destroy_process_group()
+"</div>
+
+  <p class="stagger">This passed on the first submission. The XCCL backend initialized without errors, the AllReduce produced the correct sum, and both ranks completed cleanly. This confirmed the fundamental communication pathway.</p>
+
+  <h4 class="stagger">Test 2: 12-rank distributed init</h4>
+
+  <p class="stagger">Next: all 12 ranks on a single node forming the XCCL process group and initializing PL with the full training code. This test does not run training — it verifies that PL can detect the process group, wrap the model in DDP, and establish the Gloo peer connections used for CPU-side collectives (like checkpoint coordination).</p>
+
+  <p class="stagger">This also passed. The log output showed all 12 ranks joining the XCCL process group, PL detecting <code>strategy='ddp'</code>, and the Gloo backend establishing 12 × 11 peer connections for CPU-mediated operations. The model loaded on all 12 tiles. Then the job was killed.</p>
+
+  <h4 class="stagger">Test 3: the OOM kill</h4>
+
+  <p class="stagger">Signal 9 — <code>SIGKILL</code> from the kernel's OOM killer. The 12-rank job died during data loading, not during training. Each of the 12 MPI ranks is a separate Python process, and each process independently loads the Pfam CSV (55 GB) via dask, the SwissProt CSV (5 GB), and the model weights (3 GB). The total memory consumption:</p>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Component</th><th>Per rank</th><th>× 12 ranks</th></tr>
+      <tr><td>Pfam CSV (dask → pandas)</td><td class="num">~55 GB</td><td class="num bad">660 GB</td></tr>
+      <tr><td>SwissProt CSV</td><td class="num">~5 GB</td><td class="num">60 GB</td></tr>
+      <tr><td>ESM2 + PubMedBERT weights</td><td class="num">~3 GB</td><td class="num">36 GB</td></tr>
+      <tr><td>Optimizer states, activations</td><td class="num">~3 GB</td><td class="num">36 GB</td></tr>
+      <tr><td colspan="2"><strong>Total</strong></td><td class="num bad"><strong>~792 GB</strong></td></tr>
+      <tr><td colspan="2">Aurora node DDR5 RAM</td><td class="num">~1,024 GB</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">The 792 GB estimate is a lower bound — dask intermediate buffers, Python object overhead, memory fragmentation, and the OS itself push actual consumption past the 1 TB threshold. The OOM kill is deterministic: 12 copies of 55 GB will always exceed node memory.</p>
+
+  <p class="stagger">The root cause is an interaction between our mpiexec architecture and PL's data loading design. In PL's built-in DDP, <code>prepare_data()</code> runs once on the main process, <code>setup()</code> runs per-GPU, and <code>DistributedSampler</code> ensures each GPU iterates a different slice of the data. With mpiexec, there is no "main process" — all 12 ranks are independent Python processes that each call <code>prepare_data()</code> and <code>setup()</code> independently. The code's <code>prepare_data()</code> uses <code>self.trainer.world_size</code> to decide how many splits to create — but PL sees <code>world_size=1</code> (it thinks each process has one device), so it creates no splits, and each rank loads the entire CSV.</p>
+
+  <h4 class="stagger">The fix: rank-aware data splitting</h4>
+
+  <p class="stagger">The fix modifies <code>prepare_data()</code> to read the real world size from <code>torch.distributed</code> instead of PL's <code>Trainer</code>, and to coordinate via a barrier so that rank 0 creates the splits and all other ranks wait for them.</p>
+
+  <div class="prompt-box stagger" data-label="RANK-AWARE PREPARE_DATA">
+def prepare_data(self):
+    if dist.is_initialized():
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+    else:
+        world_size = 1
+        rank = 0
+
+    if rank == 0:
+        # Rank 0 splits 44.8M Pfam rows into N shards
+        pfam_df = dd.read_csv(self.pfam_path, ...).compute()
+        for shard_idx in range(world_size):
+            shard = pfam_df.iloc[shard_idx::world_size]
+            shard.to_csv(f"split_pfam_rank_{shard_idx}.csv",
+                         index=False)
+        print(f"Split Pfam into {world_size} shards")
+
+    if dist.is_initialized():
+        dist.barrier()  # all ranks wait for rank 0
+
+def setup(self, stage=None):
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    self.pfam_df = pd.read_csv(f"split_pfam_rank_{rank}.csv")</div>
+
+  <p class="stagger">After splitting, each rank loads ~4.6 GB instead of 55 GB. The total memory budget drops from 792 GB to approximately 187 GB — well within the 1 TB node capacity.</p>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Component</th><th>Per rank</th><th>× 12 ranks</th></tr>
+      <tr><td>Pfam shard (1/12 of CSV)</td><td class="num good">~4.6 GB</td><td class="num good">55 GB</td></tr>
+      <tr><td>SwissProt CSV (full)</td><td class="num">~5 GB</td><td class="num">60 GB</td></tr>
+      <tr><td>ESM2 + PubMedBERT weights</td><td class="num">~3 GB</td><td class="num">36 GB</td></tr>
+      <tr><td>Optimizer states, activations</td><td class="num">~3 GB</td><td class="num">36 GB</td></tr>
+      <tr><td colspan="2"><strong>Total</strong></td><td class="num good"><strong>~187 GB</strong></td></tr>
+    </table>
+  </div>
+
+  <div class="warning stagger">
+    <p><strong>This fix is a prerequisite for multi-node, not an optimization.</strong> At 48 ranks across 4 nodes, 48 × 55 GB = 2.6 TB — far beyond the 4 TB total across all nodes. Every rank must load only its shard. The same <code>prepare_data()</code> fix scales unchanged from 12 to 48 ranks — rank 0 creates 48 shards, the barrier synchronizes, and each rank loads its own shard.</p>
+  </div>
+</section>
+
+<!-- ===== SECTION 7: THE COMPLETE PBS SCRIPT ===== -->
+<section class="scene" id="s7">
+  <h2 class="stagger">Section 7 · The PBS scripts</h2>
+  <h3 class="stagger">Everything that must be set before Python runs</h3>
+
+  <p class="stagger">The PBS script is where all the Aurora-specific complexity lives — the module loads, the affinity masking, the environment variable exports, the mpiexec invocation. The Python code is (mostly) device-agnostic after the fixes. The PBS script is where the device-specificity concentrates.</p>
+
+  <div class="prompt-box stagger" data-label="12-TILE SINGLE-NODE DEBUG JOB">
+#!/bin/bash -l
+#PBS -l select=1:system=aurora
+#PBS -l walltime=2:00:00
+#PBS -l filesystems=home:flare
+#PBS -q debug
+#PBS -A NLDesignProtein
+#PBS -N pencl-12tile
+#PBS -j oe
+#PBS -o /flare/.../logs/pencl_12tile_$(date +%s).out
+
+module load frameworks/2025.3.1
+source /flare/.../envs/biom3-env/bin/activate
+
+# Rank coordination
+export MASTER_ADDR=$(hostname)
+export MASTER_PORT=29500
+export WORLD_SIZE=12
+
+# Proxy for HuggingFace model downloads
+export http_proxy="http://proxy.alcf.anl.gov:3128"
+export https_proxy="http://proxy.alcf.anl.gov:3128"
+
+# Workaround: unset stale CCL variables from the module
+unset CCL_PROCESS_LAUNCHER
+export CCL_PROCESS_LAUNCHER=None
+unset ONEAPI_DEVICE_SELECTOR
+
+# CPU affinity: pin each of 12 ranks to a specific core
+export CPU_BIND="list:4:9:14:19:20:25:56:61:66:71:74:79"
+
+cd /flare/.../code
+
+mpiexec -n 12 -ppn 12 \
+    --cpu-bind ${CPU_BIND} \
+    /flare/.../jobs/set_affinity_gpu.sh \
+    python3 PL_training.py \
+    --data_path .../swissprot_augmented.csv \
+    --pfam_data_path .../pfam_enriched_v2.csv \
+    --dataset_type pfam \
+    --device xpu \
+    --num_gpus 1 \
+    --batch_size 8 \
+    --acc_grad_batches 2 \
+    ...</div>
+
+  <p class="stagger">Several elements deserve explanation. <code>-j oe</code> joins stdout and stderr into one file — critical for debugging because error messages from rank 5 and print statements from rank 0 end up in the same log. <code>unset CCL_PROCESS_LAUNCHER</code> clears a stale variable set by the <code>frameworks</code> module that can interfere with XCCL initialization. The <code>CPU_BIND</code> list pins the 12 MPI ranks to specific physical cores distributed across both sockets, avoiding core contention.</p>
+
+  <p class="stagger">For multi-node, the script changes minimally: <code>#PBS -l select=4</code>, <code>MASTER_ADDR=$(head -1 $PBS_NODEFILE)</code>, and <code>mpiexec -n 48 -ppn 12</code>. The Python code is identical.</p>
+</section>
+
+<!-- ===== SECTION 8: TRAINING MATH ===== -->
+<section class="scene" id="s8">
+  <h2 class="stagger">Section 8 · Training math</h2>
   <h3 class="stagger">How many tiles, how many hours, how many epochs</h3>
 
   <div class="table-wrap stagger">
@@ -293,32 +615,49 @@ if int(os.environ.get("PALS_WORLD_SIZE", 1)) > 1:
     </table>
   </div>
 
-  <p class="stagger">The 2 seconds per step estimate is based on A100 throughput (scaled to 80% for XPU) after JIT warmup. The actual per-step time at 48 tiles will depend on gradient synchronization overhead — the AllReduce for 107M trainable parameters across 48 ranks via the Slingshot network. At 89% scaling efficiency (the benchmark number for XCCL on Aurora), the effective time is ~2.2 seconds per step, giving ~4.0 hours per epoch.</p>
+  <p class="stagger">The 2 seconds per step estimate is based on A100 throughput scaled to 80% for XPU after JIT warmup. The actual per-step time at 48 tiles depends on gradient synchronization overhead — the AllReduce for 107M trainable parameters across 48 ranks via Slingshot-11. At 89% scaling efficiency (the XCCL benchmark on Aurora), the effective time is ~2.2 seconds per step, giving ~4.0 hours per epoch.</p>
 
   <div class="callout stagger">
     <p><strong>Why 10 epochs?</strong> We do not know a priori how many epochs are needed. The original PenCL used 5 epochs for the design application and 20 for benchmarking. Our corpus is 9× larger per protein (9 text variants) but also 9× more diverse. We start with 10, checkpoint every epoch, and evaluate embedding geometry at epochs 2, 5, and 10. If format invariance plateaus before epoch 10, we stop early. If it hasn't converged by epoch 10, we extend.</p>
   </div>
 </section>
 
-<!-- ===== SECTION 7: STATUS ===== -->
-<section class="scene" id="s7">
-  <h2 class="stagger">Section 7 · Status</h2>
-  <h3 class="stagger">Phase 0 confirmed; scaling in progress</h3>
+<!-- ===== SECTION 9: STATUS ===== -->
+<section class="scene" id="s9">
+  <h2 class="stagger">Section 9 · Status</h2>
+  <h3 class="stagger">The distributed infrastructure works; data splitting in progress</h3>
 
-  <div class="table-wrap stagger">
-    <table>
-      <tr><th>Phase</th><th>Status</th><th>Result</th></tr>
-      <tr><td><strong>Phase 0:</strong> Single tile</td><td class="good">Confirmed</td><td>3 training steps, all 4 losses correct, fp32</td></tr>
-      <tr><td><strong>Phase 1:</strong> 12 tiles, 1 node</td><td class="neutral">Next</td><td>XCCL backend test, then 12-rank mpiexec</td></tr>
-      <tr><td><strong>Phase 2:</strong> 48 tiles, 4 nodes</td><td>Pending Phase 1</td><td>Production-scale DDP</td></tr>
-      <tr><td><strong>Phase 3:</strong> Run 1 production</td><td>Pending Phase 2</td><td>10 epochs, 36h walltime, embedding eval</td></tr>
-    </table>
+  <div class="timeline stagger">
+    <div class="timeline-item done">
+      <div class="timeline-label">Phase 0 — Single tile</div>
+      <div class="timeline-desc">Confirmed. 3 training steps, all 4 losses correct, fp32. 11 code fixes applied (6 inference + 5 training). Job 8434430.</div>
+    </div>
+    <div class="timeline-item done">
+      <div class="timeline-label">Phase 1a — XCCL 2-rank AllReduce</div>
+      <div class="timeline-desc">Confirmed. Correct sum across 2 tiles. XCCL backend + ZE_AFFINITY_MASK + PALS environment variables all working.</div>
+    </div>
+    <div class="timeline-item done">
+      <div class="timeline-label">Phase 1b — 12-rank distributed init</div>
+      <div class="timeline-desc">Confirmed. All 12 ranks form the XCCL process group. PL detects DDP. Gloo peer connections established for CPU collectives.</div>
+    </div>
+    <div class="timeline-item active">
+      <div class="timeline-label">Phase 1c — 12-rank training with data splitting</div>
+      <div class="timeline-desc">In progress. OOM at 12 × 55 GB. Implementing rank-aware prepare_data() — each rank loads 1/12 of Pfam (~4.6 GB). Total memory: 187 GB (fits in 1 TB).</div>
+    </div>
+    <div class="timeline-item pending">
+      <div class="timeline-label">Phase 2 — Multi-node, 4 × 12 = 48 tiles</div>
+      <div class="timeline-desc">Same mpiexec + XCCL pattern across 4 nodes. MASTER_ADDR from $PBS_NODEFILE. Data splitting scales directly to 48 shards.</div>
+    </div>
+    <div class="timeline-item pending">
+      <div class="timeline-label">Phase 3 — Production Run 1</div>
+      <div class="timeline-desc">4 nodes, 36-hour walltime, 10 epochs. Checkpoint every epoch. Resume from last.ckpt if interrupted. Embedding geometry evaluation at epochs 2, 5, 10.</div>
+    </div>
   </div>
 
-  <p class="stagger">The environment is stable: biom3-env with Addison's custom Lightning on <code>module load frameworks/2025.3.1</code> (PyTorch 2.10.0, IPEX 2.10.10). The corpus (49.8M pairs, 63.4 GB) is staged on <code>/flare</code>. Model weights (ESM2, PubMedBERT) are on <code>/flare</code>. The code fixes from Sections 2–3 are applied and verified. What remains is scaling — initializing XCCL, launching multi-rank jobs, and tuning the data loading to avoid 12 copies of the 55 GB Pfam CSV.</p>
+  <p class="stagger">The hard part — XCCL process group formation, GPU affinity masking, 12-rank distributed initialization, PL DDP integration — is confirmed working. The remaining blocker is data engineering: splitting the Pfam CSV across ranks so each loads only its shard. This is the same fix needed for 48-rank multi-node training, so solving it here unblocks both Phases 2 and 3.</p>
 
   <div class="info stagger">
-    <p><strong>Parallel workstream.</strong> While Aurora scales from 1 to 48 tiles, the Pfam-wide SCA batch is completing on Spark (19,650 families decomposed, annotation generator running). When both converge — Run 1 trained on Aurora and sector annotations computed on Spark — Run 2 launches with the SECTOR text field and the ℒ<sub>sector</sub> loss.</p>
+    <p><strong>Parallel workstream.</strong> While Aurora scales to multi-tile production, the Pfam-wide SCA is complete on Spark: 20,011 protein families decomposed into independent components, 93 million per-protein annotations generated (36 GB), and 19,578 IC matrix files prepared for the sector loss. When Aurora reaches production and the sector merge completes, Run 2 launches — the same corpus plus sector annotations and the ℒ<sub>sector</sub> loss term.</p>
   </div>
 
   <p class="stagger chapter-nav">Part of the generalization-preserving fine-tuning series · Ranganathan Lab · April 2026</p>

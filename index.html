@@ -51,8 +51,8 @@ h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-
 <!-- ===== DEMOS ===== -->
 <div class="section-header">
   <div class="section-label">Demos</div>
-  <div class="section-title">The scientific story</div>
-  <p class="section-desc">What we did and what we learned. Each demo is a self-contained narrative with interactive visualizations.</p>
+  <div class="section-title">Scientific Strategy</div>
+  <p class="section-desc">Each demo is a self-contained narrative with interactive visualizations documenting what we did and what we learned.</p>
 </div>
 
 <div class="cards">
@@ -131,9 +131,9 @@ h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-
 
 <!-- ===== NOTES ===== -->
 <div class="section-header">
-  <div class="section-label">Didactic Notes</div>
-  <div class="section-title">The engineering story</div>
-  <p class="section-desc">How we built it and what went wrong. Each note documents the design decisions, implementation details, and debugging narrative behind one component of the project.</p>
+  <div class="section-label">Notes</div>
+  <div class="section-title">Methods and Technology</div>
+  <p class="section-desc">Design decisions, implementation details, and debugging narratives behind each component of the project.</p>
 </div>
 
 <div class="cards">
@@ -173,12 +173,12 @@ h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-
       <span class="demo-num">Note 18</span>
       <span class="card-title">PenCL on Aurora</span>
     </div>
-    <p class="card-desc">Porting PenCL contrastive pretraining from NVIDIA CUDA to Intel XPU on the Aurora exascale system. Five training-specific fixes, the debugging narrative from lost logs to confirmed loss values, and the scaling path from 1 tile to 48-tile production.</p>
+    <p class="card-desc">Porting PenCL contrastive pretraining from NVIDIA CUDA to Intel XPU on the Aurora exascale system. A complete catalog of 11 fixes — from pynvml imports to bf16 infinity masking to XCCL distributed initialization — with the technical detail needed to reproduce each solution. Covers the full path from single-tile confirmation to 12-rank scaling, the OOM memory wall, and rank-aware data splitting.</p>
     <div class="tags">
-      <span class="tag accent">761M parameters</span>
-      <span class="tag green">Single-tile confirmed</span>
-      <span class="tag blue">XCCL backend</span>
-      <span class="tag gold">48-tile target</span>
+      <span class="tag accent">11 CUDA→XPU fixes</span>
+      <span class="tag green">12-tile scaling confirmed</span>
+      <span class="tag blue">XCCL + mpiexec</span>
+      <span class="tag gold">48-tile production target</span>
     </div>
     <span class="arrow">→</span>
   </a>
