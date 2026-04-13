@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Note 16 · Rebuilding the Corpus</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap">
+<style>
+:root{--bg:#fffff8;--text:#1a1a1a;--text-secondary:#666;--accent:#8b0000;--accent-light:rgba(139,0,0,0.08);--code-bg:#f5f3ef;--mono:'IBM Plex Mono',monospace;--sans:'DM Sans',sans-serif;--border:#e0ddd5;--green:#2d7d46;--green-light:rgba(45,125,70,0.08);--gold:#b8860b;--gold-light:rgba(184,134,11,0.08);--blue:#2d5f8a}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.72;overflow-x:hidden}
+.progress-bar{position:fixed;top:0;left:0;height:3px;background:var(--accent);z-index:100;transition:width .2s}
+.dot-nav{position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:99;display:flex;flex-direction:column;gap:8px}
+.dot-nav a{width:8px;height:8px;border-radius:50%;background:var(--border);display:block;transition:all .3s}
+.dot-nav a.active{background:var(--accent);transform:scale(1.3)}
+.scene{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:60px 10vw;position:relative}
+@media(max-width:800px){.scene{padding:40px 6vw}}
+.stagger{opacity:0;transform:translateY(18px);transition:opacity .55s ease,transform .55s ease}
+.stagger.visible{opacity:1;transform:translateY(0)}
+h2{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+h3{font-family:var(--sans);font-size:28px;font-weight:700;line-height:1.25;margin-bottom:16px;max-width:720px}
+h4{font-family:var(--mono);font-size:11px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;margin:20px 0 8px 0}
+p{font-size:16.5px;max-width:680px;margin-bottom:14px}
+.secondary{color:var(--text-secondary);font-size:14px}
+.caption{color:var(--text-secondary);font-size:13px;margin-top:6px;max-width:680px;line-height:1.55}
+.scene.dark{background:#1a1a1a;color:#f5f5f0;min-height:100vh}
+.scene.dark h2{color:var(--accent);opacity:.9}
+.scene.dark h3{color:#f5f5f0;font-size:32px;max-width:760px}
+.scene.dark p{color:#ccc;font-size:15.5px}
+.scene.dark .meta{font-family:var(--mono);font-size:11.5px;color:#888;margin-top:32px;line-height:2}
+.scene.dark .meta span{display:block}
+.scene.dark .chapter-num{font-family:var(--mono);font-size:72px;font-weight:700;color:rgba(139,0,0,0.3);margin-bottom:12px;line-height:1}
+.callout{background:var(--accent-light);border-left:3px solid var(--accent);border-radius:6px;padding:16px 20px;margin:18px 0;max-width:680px}
+.callout p{margin-bottom:4px;font-size:15.5px}
+.callout strong{color:var(--accent)}
+.key-finding{background:var(--green-light);border-left:3px solid var(--green);border-radius:6px;padding:16px 20px;margin:18px 0;max-width:680px}
+.key-finding p{margin-bottom:4px;font-size:15.5px}
+.key-finding strong{color:var(--green)}
+.warning{background:var(--gold-light);border-left:3px solid var(--gold);border-radius:6px;padding:16px 20px;margin:18px 0;max-width:680px}
+.warning p{margin-bottom:4px;font-size:15.5px}
+.warning strong{color:var(--gold)}
+.defn{background:var(--code-bg);border-radius:6px;padding:16px 20px;margin:16px 0;max-width:680px}
+.defn p{font-size:15px;margin-bottom:4px}
+.table-wrap{max-width:740px;overflow-x:auto;margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th{font-family:var(--mono);font-weight:400;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);text-align:left;padding:8px 10px;border-bottom:2px solid var(--border)}
+td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+td.num{font-family:var(--mono);text-align:right}
+td.good{color:var(--green);font-weight:600}
+td.bad{color:var(--accent);font-weight:500}
+td.neutral{color:var(--text-secondary)}
+code{font-family:var(--mono);font-size:13.5px;background:var(--code-bg);padding:2px 6px;border-radius:4px}
+.prompt-box{font-family:var(--mono);font-size:13px;background:var(--code-bg);border-radius:6px;padding:14px 18px;margin:14px 0;max-width:680px;line-height:1.65;position:relative;overflow-wrap:break-word}
+.prompt-box::before{content:attr(data-label);font-family:var(--mono);font-size:9px;font-weight:500;color:var(--accent);letter-spacing:.08em;position:absolute;top:-8px;left:14px;background:var(--bg);padding:0 6px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0;max-width:720px}
+.stat-box{background:var(--code-bg);border-radius:6px;padding:14px 16px}
+.stat-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary)}
+.stat-value{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--accent)}
+.stat-value.green{color:var(--green)}
+.stat-value.gold{color:var(--gold)}
+.stat-value.blue{color:var(--blue)}
+.chapter-nav{font-family:var(--mono);font-size:11px;color:var(--text-secondary);margin-top:40px}
+.tier-label{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.05em;padding:2px 8px;border-radius:3px;margin-right:6px}
+.tier-1{background:#e8e4dc;color:var(--text)}
+.tier-2{background:rgba(139,0,0,0.12);color:var(--accent)}
+.tier-3{background:rgba(45,125,70,0.12);color:var(--green)}
+.tier-4{background:rgba(184,134,11,0.12);color:var(--gold)}
+.comparison{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:700px;margin:16px 0}
+@media(max-width:600px){.comparison{grid-template-columns:1fr}}
+.comparison-box{border-radius:6px;padding:14px 18px;font-size:14px;line-height:1.6}
+.comparison-box.bad{background:var(--accent-light);border:1px solid rgba(139,0,0,0.2)}
+.comparison-box.good{background:var(--green-light);border:1px solid rgba(45,125,70,0.2)}
+.comparison-box h4{margin-top:0}
+</style>
+</head>
+<body>
+<div class="progress-bar" id="progressBar"></div>
+<nav class="dot-nav" id="dotNav"></nav>
+
+<!-- ===== TITLE ===== -->
+<section class="scene dark" id="s0">
+  <div class="chapter-num stagger">16</div>
+  <h2 class="stagger">Generalization-Preserving Fine-tuning of BioM3 · Didactic Note 16</h2>
+  <h3 class="stagger">Rebuilding the corpus: from format memorization to vocabulary invariance</h3>
+  <p class="stagger">PenCL was trained on ~45 million text-protein pairs in a single annotation format. The Stage 3 fine-tuning experiments proved that the resulting embedding geometry is the bottleneck for natural language protein design. This note describes the construction of a ~50 million pair corpus with format-diverse and vocabulary-diverse text — the data foundation for PenCL retraining.</p>
+  <div class="meta stagger">
+    <span>Ranganathan Lab · Center for Physics of Evolving Systems · University of Chicago</span>
+    <span>BioM3 ProteoScribe · PenCL (Stage 1) Retraining · April 2026</span>
+  </div>
+</section>
+
+<!-- ===== SECTION 1: THE BOTTLENECK ===== -->
+<section class="scene" id="s1">
+  <h2 class="stagger">Section 1 · The bottleneck</h2>
+  <h3 class="stagger">PenCL's embedding geometry determines what Stage 3 can learn</h3>
+
+  <p class="stagger">The three-stage BioM3 pipeline — PenCL (contrastive alignment), Facilitator (embedding refinement), ProteoScribe (sequence generation) — is trained in stages: Stages 1 and 2 are frozen during Stage 3 fine-tuning. When a user writes a text prompt, PenCL maps it to a 512-dimensional conditioning vector z<sub>c</sub> that guides ProteoScribe's generation. The quality of generated sequences depends entirely on where in z<sub>c</sub> space the prompt lands.</p>
+
+  <p class="stagger">PenCL was trained exclusively on SwissProt-formatted text: field-prefixed annotations in a uniform syntactic pattern ("PROTEIN NAME: ... FUNCTION: ... LINEAGE: ..."). PubMedBERT's final transformer blocks were fine-tuned on this format. The result: text containing SwissProt vocabulary and syntax maps to protein-informative z<sub>c</sub> vectors. Text in any other format or vocabulary maps elsewhere — to regions that carry less information about protein identity.</p>
+
+  <p class="stagger">The C7 fine-tuning experiments proved this directly. At epoch 69, annotation dropout + LoRA + prior preservation created a transient window where all four prompt formats (SwissProt, SGD-style, database-keyword natural language, conversational English) produced SH3 domains with comparable sector conservation — a P1–P-Novel gap of just 9.6%. By epoch 209, the gap had expanded to 61.1%. Stage 3 specialization progressively narrowed the model's responsive z<sub>c</sub> region toward the zone where PenCL maps training-style text, excluding everything else.</p>
+
+  <div class="callout stagger">
+    <p><strong>The vocabulary insight.</strong> The critical distinction is not format (field prefixes vs. prose) but vocabulary. P5, which uses natural language syntax but SwissProt keywords ("SH3 domain", "HOG pathways", "Cdc42p"), achieves 58.3% sector with the C0 baseline — because PenCL recognizes those keywords regardless of surrounding syntax. P-Novel, which uses conversational vocabulary ("signaling domain", "activate osmotic stress responses"), fails at 29.6%. The corpus must include vocabulary-diverse text, not just format-diverse text.</p>
+  </div>
+
+  <p class="stagger">The component decomposition from C1 (dropout only, through epoch 169) confirms the architecture of the problem. Dropout enables P5: C1 P5 peaks at 65.0% at epoch 119 — the best P5 result from any condition. But without LoRA the window closes (P5 decays to 59.4% by epoch 169), and without prior preservation P-Novel never produces SH3 domains (147 aa, 39.8% sector at epoch 169). Each component addresses a different failure mode, but all three together only create a transient fix. The permanent fix requires changing where PenCL maps text — retraining Stage 1 itself.</p>
+</section>
+
+<!-- ===== SECTION 2: THE CORPUS DESIGN ===== -->
+<section class="scene" id="s2">
+  <h2 class="stagger">Section 2 · The corpus</h2>
+  <h3 class="stagger">~50 million text-protein pairs spanning the full format and vocabulary spectrum</h3>
+
+  <p class="stagger">The retrained PenCL will see the same protein described in multiple ways: the original SwissProt annotation, partial annotations with fields randomly dropped, free-form scientific English, and minimal name-only descriptions. Over training, the contrastive loss (L<sub>GC</sub>) pulls all these descriptions toward the same protein embedding, teaching PubMedBERT's final layers to extract biological meaning regardless of how it is expressed.</p>
+
+  <p class="stagger">The corpus has two sides. The Pfam side (~44.8M sequences) provides evolutionary breadth — the L<sub>PFC</sub> loss learns family relationships from these. The SwissProt side (~570K sequences) provides annotation depth — the text diversity tiers are built from these. Improving the text quality on both sides, and adding format diversity to the SwissProt side, is the core work.</p>
+
+  <h4 class="stagger">SwissProt augmented (5.05M rows from 569K proteins)</h4>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Component</th><th>Source</th><th>Rows</th><th>What was done</th></tr>
+      <tr><td><span class="tier-label tier-1">TIER 1</span> Original</td><td>Existing</td><td class="num">569,516</td><td>Unchanged — full field-prefixed SwissProt format, all 17 fields</td></tr>
+      <tr><td><span class="tier-label tier-2">TIER 2</span> Dropout variants</td><td>Track C</td><td class="num">2,847,580</td><td>5 random field subsets per protein (PROTEIN NAME always kept, FUNCTION 85%, LINEAGE 85%, others 40–65%)</td></tr>
+      <tr><td><span class="tier-label tier-3">TIER 3</span> Natural language</td><td>Track B</td><td class="num">1,064,643</td><td>2 free-form English descriptions per protein via Claude Sonnet batch API, genuinely diverse vocabulary, zero field prefixes (533K of 569K proteins; 36K returned empty from API)</td></tr>
+      <tr><td><span class="tier-label tier-4">TIER 4</span> Minimal</td><td>Track C</td><td class="num">569,516</td><td>One brief description per protein from name + family only: "An SH3 domain from fungi"</td></tr>
+      <tr><td colspan="2"><strong>SwissProt subtotal</strong></td><td class="num"><strong>5,051,255</strong></td><td>Mean 8.9 rows per protein; 93.3% have all 4 tiers (9 rows each)</td></tr>
+    </table>
+  </div>
+
+  <h4 class="stagger">Pfam enriched v2 (44.8M rows — same count, substantially richer text)</h4>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Enrichment</th><th>Source</th><th>Rows affected</th><th>What was done</th></tr>
+      <tr><td>BLAST-transferred annotations</td><td>Track A: MMseqs2 vs SwissProt</td><td class="num">30,494,039 (68.1%)</td><td>Transfer PROTEIN NAME, FUNCTION, CATALYTIC ACTIVITY from closest SwissProt homolog</td></tr>
+      <tr><td>LINEAGE corrected</td><td>Phase 2: NCBI taxdump + UniProt ID mapping</td><td class="num">22,755,451 (50.8%)</td><td>Replace incorrect or generic lineage with sequence-specific taxonomy from NCBI</td></tr>
+      <tr><td>LINEAGE added (new)</td><td>Phase 2: same pipeline</td><td class="num">10,765,231 (24.0%)</td><td>Add lineage where none existed — total LINEAGE coverage 74.9%, up from 67%</td></tr>
+      <tr><td>EC / catalytic activity</td><td>Phase 2: ExPASy ENZYME + pfam2go + ec2go</td><td class="num">573,684</td><td>Add enzyme classification for 812 Pfam enzyme families</td></tr>
+      <tr><td>Rebuilt unenriched entries</td><td>Phase 2: field-prefixed format</td><td class="num">14,273,115</td><td>Entries without BLAST hits rebuilt from family_name + family_description into proper PROTEIN NAME / FUNCTION / LINEAGE format</td></tr>
+      <tr><td colspan="2"><strong>Pfam subtotal</strong></td><td class="num"><strong>44,767,154</strong></td><td>Same row count; text quality improved across all entries</td></tr>
+    </table>
+  </div>
+
+  <div class="stats-grid stagger">
+    <div class="stat-box"><div class="stat-label">Grand total</div><div class="stat-value">49.8M</div></div>
+    <div class="stat-box"><div class="stat-label">File size</div><div class="stat-value gold">63.4 GB</div></div>
+    <div class="stat-box"><div class="stat-label">SwissProt proteins</div><div class="stat-value green">569,516</div></div>
+    <div class="stat-box"><div class="stat-label">Pfam LINEAGE coverage</div><div class="stat-value blue">74.9%</div></div>
+  </div>
+
+  <p class="stagger">Tiers 2–4 are applied only to the 570K SwissProt proteins, which have rich annotations worth diversifying. The 44.8M Pfam entries are not duplicated — their row count is unchanged — but their text quality improved substantially. Before enrichment, most Pfam entries had generic text: "Protein name: A0A0G2K1R2. Family description: SH3 domain." After enrichment, 68% carry transferred SwissProt annotations with specific protein names, functions, and catalytic activities; 75% have correct organism-specific lineages; and the 14.3M entries that could not be enriched by BLAST were at least rebuilt into proper field-prefixed format.</p>
+
+  <p class="stagger">Additionally, stochastic annotation dropout is applied to <em>all</em> entries during training — including the Pfam entries. Each protein-text pair is presented with a different random field subset in every batch. A single SwissProt protein with 5 Tier 2 variants, 2 Tier 3 descriptions, and 1 Tier 4 description, each seen with different dropout masks across 10 epochs, produces hundreds of distinct text inputs that the contrastive loss pulls toward the same protein embedding.</p>
+</section>
+
+<!-- ===== SECTION 3: TRACK A ===== -->
+<section class="scene" id="s3">
+  <h2 class="stagger">Section 3 · Track A: Pfam enrichment</h2>
+  <h3 class="stagger">30.5 million Pfam sequences gain specific, informative annotations</h3>
+
+  <p class="stagger">The original Pfam text is formulaic and repetitive: "Major Facilitator Superfamily. Family description: The major facilitator superfamily. GENE ONTOLOGY: transmembrane transport." Many thousands of sequences in the same family share identical text. This gives PenCL almost no information to distinguish one MFS transporter from another — the text side of the contrastive loss cannot learn meaningful protein-text alignment when the text is the same for every family member.</p>
+
+  <p class="stagger">Track A uses MMseqs2 to search all 44.8M Pfam sequences against the 569K SwissProt entries and transfers the closest homolog's full annotation. A Pfam sequence that was paired with a generic family description now gets the SwissProt hit's PROTEIN NAME, FUNCTION, LINEAGE, CATALYTIC ACTIVITY, and other fields — specific, informative text that describes what the protein actually does.</p>
+
+  <div class="stats-grid stagger">
+    <div class="stat-box"><div class="stat-label">Total Pfam</div><div class="stat-value">44.8M</div></div>
+    <div class="stat-box"><div class="stat-label">Enriched</div><div class="stat-value green">30.5M</div></div>
+    <div class="stat-box"><div class="stat-label">Rate</div><div class="stat-value green">68.1%</div></div>
+    <div class="stat-box"><div class="stat-label">No hit</div><div class="stat-value gold">14.3M</div></div>
+  </div>
+
+  <p class="stagger">The 68.1% enrichment rate means 30.5 million sequences now have SwissProt-quality annotations. The identity distribution of transferred annotations peaks at 40–50%, which is well within the range where functional annotation transfer is reliable. The 14.3 million sequences without hits are exactly the proteins one would expect — DUFs, taxonomically restricted families, and Pfam entries with no characterized SwissProt representative. These keep their original text.</p>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Identity range</th><th>Count</th><th>% of enriched</th></tr>
+      <tr><td>30–40%</td><td class="num">6,240,457</td><td class="num">20.5%</td></tr>
+      <tr><td>40–50%</td><td class="num">6,756,104</td><td class="num">22.1%</td></tr>
+      <tr><td>50–60%</td><td class="num">5,898,832</td><td class="num">19.3%</td></tr>
+      <tr><td>60–70%</td><td class="num">4,716,939</td><td class="num">15.5%</td></tr>
+      <tr><td>70–80%</td><td class="num">3,688,840</td><td class="num">12.1%</td></tr>
+      <tr><td>80–100%</td><td class="num">3,192,867</td><td class="num">10.5%</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">Each enriched entry preserves the Pfam sequence's own organism lineage (LINEAGE field) while inheriting the hit's functional annotation. A SIMILARITY provenance field records the transfer source and identity for quality control.</p>
+</section>
+
+<!-- ===== SECTION 4: PHASE 2 ===== -->
+<section class="scene" id="s4">
+  <h2 class="stagger">Section 4 · Phase 2: Multi-database enrichment</h2>
+  <h3 class="stagger">Every sequence needs its own lineage; every enzyme needs its EC number</h3>
+
+  <p class="stagger">Track A transferred SwissProt annotations as monolithic text blobs. Phase 2 goes further: it queries the individual annotation databases to add specific fields that the BLAST transfer may have missed or that apply to all 44.8M entries, not just the 30.5M with hits.</p>
+
+  <p class="stagger">The most important addition is LINEAGE. In the current PenCL training data, most Pfam entries have no organism-specific lineage. But LINEAGE is the field that varies per sequence and drives phylogenetic conditioning in ProteoScribe — it is what allows the model to generate a bacterial version vs. a fungal version of the same fold. Phase 2 maps every Pfam sequence to its source organism via the UniProt ID mapping database, then looks up the full NCBI taxonomy lineage. The target is near-100% LINEAGE coverage.</p>
+
+  <p class="stagger">The remaining databases add family-level annotations that apply uniformly to all members of a Pfam family:</p>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Database</th><th>Field added</th><th>Coverage</th><th>Source</th></tr>
+      <tr><td>NCBI Taxonomy</td><td>LINEAGE</td><td>All entries with UniProt IDs</td><td>taxdump + UniProt idmapping</td></tr>
+      <tr><td>ExPASy ENZYME</td><td>CATALYTIC ACTIVITY</td><td>All enzyme families</td><td>InterPro Pfam-to-EC + enzyme.dat</td></tr>
+      <tr><td>BRENDA</td><td>BIOPHYSICOCHEMICAL PROPERTIES</td><td>Enzyme families with kinetic data</td><td>BRENDA flat files</td></tr>
+      <tr><td>SMART / InterPro</td><td>PROTEIN NAME enrichment</td><td>Families with InterPro cross-refs</td><td>InterPro entry.list</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">Phase 2 operates on the Track A output — it enriches the already-enriched CSV, adding or updating fields. The output is the final Pfam training file: same format, richer text, with every sequence carrying its own organism-specific lineage and every enzyme family carrying its EC number and kinetic parameters.</p>
+</section>
+
+<!-- ===== SECTION 5: TRACK C ===== -->
+<section class="scene" id="s5">
+  <h2 class="stagger">Section 5 · Track C: Dropout variants and minimal descriptions</h2>
+  <h3 class="stagger">3.42 million mechanical text variants from the 570K SwissProt proteins</h3>
+
+  <h4 class="stagger">Tier 2: Annotation dropout variants</h4>
+
+  <p class="stagger">For each SwissProt protein, 5 dropout variants are pre-computed by randomly retaining or dropping each annotation field according to a tiered retention schedule. The schedule reflects the information hierarchy: fields that define protein identity (name, function, lineage) are retained most often; fields that specify subfamily (paralog, catalytic activity, pathway) are retained moderately; supplementary fields (subunit, localization, tissue specificity) are retained least often.</p>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Tier</th><th>Fields</th><th>Retention</th><th>Rationale</th></tr>
+      <tr><td><strong>Core</strong></td><td>PROTEIN NAME</td><td class="num">100%</td><td>Never dropped — anchors protein identity</td></tr>
+      <tr><td><strong>Core</strong></td><td>FUNCTION, LINEAGE</td><td class="num">85%</td><td>What it does + where it evolved</td></tr>
+      <tr><td><strong>Specifying</strong></td><td>PARALOG NAME, CATALYTIC ACTIVITY, FAMILY NAMES</td><td class="num">65%</td><td>Narrows to subfamily or enzymatic class</td></tr>
+      <tr><td><strong>Specifying</strong></td><td>PATHWAY, DOMAIN</td><td class="num">55%</td><td>Functional context and domain architecture</td></tr>
+      <tr><td><strong>Supplementary</strong></td><td>SUBUNIT, SUBCELLULAR LOCATION, SIMILARITY, PTM, COFACTOR, TISSUE SPECIFICITY, and all remaining fields</td><td class="num">40%</td><td>Optional context — model learns these are dispensable</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">The schedule is stored as a JSON configuration file and can be adjusted before PenCL training starts. Each variant uses a deterministic seed derived from the protein accession and variant index, so the dropout is reproducible. PROTEIN NAME is never dropped, ensuring every variant carries at least the fold identity.</p>
+
+  <p class="stagger">An example: a SwissProt entry for Sho1 with 8 annotation fields might produce variants ranging from the full annotation minus SUBUNIT and SIMILARITY (6 fields retained) down to just PROTEIN NAME and LINEAGE (core fields only). Across 5 variants, PenCL sees the same protein described at different levels of detail.</p>
+
+  <h4 class="stagger">Tier 4: Minimal descriptions</h4>
+
+  <p class="stagger">One minimal description per protein, constructed mechanically from the protein name, family, and top-level taxonomy. These are plain English — no field prefixes, no database syntax. Templates are randomly selected per protein:</p>
+
+  <div class="defn stagger">
+    <p>"A SH3 domain protein."</p>
+    <p>"A chorismate mutase from bacteria."</p>
+    <p>"A serine protease, trypsin family, found in vertebrates."</p>
+    <p>"An ABC transporter from fungi."</p>
+  </div>
+
+  <p class="stagger">These test the extreme of the format spectrum: can PenCL learn that "A SH3 domain protein" and "PROTEIN NAME: SH3 domain. FUNCTION: Plasma membrane osmosensor. LINEAGE: ..." describe overlapping identities? The contrastive loss must pull the minimal description toward the same protein embedding as the full annotation.</p>
+</section>
+
+<!-- ===== SECTION 6: TRACK B ===== -->
+<section class="scene" id="s6">
+  <h2 class="stagger">Section 6 · Track B: LLM-generated natural language descriptions</h2>
+  <h3 class="stagger">The vocabulary constraint is the scientific crux of Tier 3</h3>
+
+  <p class="stagger">Tier 3 generates 2 free-form scientific descriptions per SwissProt protein using the Claude API. These descriptions must use genuinely different vocabulary from the database annotations — not just different syntax. This is the most important tier and the hardest to get right.</p>
+
+  <p class="stagger">The vocabulary insight means that a description using the same keywords as SwissProt ("SH3 domain", "osmosensor", "HOG pathway") teaches PenCL nothing new — those keywords already map to protein-informative z<sub>c</sub> vectors. The value of Tier 3 is in bringing new vocabulary into the training distribution: scientific terms, mechanistic descriptions, and functional language that a biophysicist would use but that never appear in SwissProt.</p>
+
+  <div class="comparison stagger">
+    <div class="comparison-box bad">
+      <h4>BAD: Same keywords, different format</h4>
+      <p>"This is an SH3 domain protein that functions as a plasma membrane osmosensor for activation of the HOG pathway."</p>
+      <p class="caption">Still uses "SH3 domain", "osmosensor", "HOG pathway" — the SwissProt keywords PenCL already knows.</p>
+    </div>
+    <div class="comparison-box good">
+      <h4>GOOD: Genuinely different vocabulary</h4>
+      <p>"A yeast transmembrane signaling adaptor whose proline-recognition module detects changes in external solute concentration and recruits a MAP kinase kinase to initiate glycerol accumulation."</p>
+      <p class="caption">"Proline-recognition module" for SH3, "external solute concentration" for osmotic stress. PenCL must learn these are equivalent.</p>
+    </div>
+  </div>
+
+  <p class="stagger">The prompt template instructs Claude to rephrase every technical term — protein names into structural/functional descriptions, pathway names into mechanistic descriptions, organism names into common language. Two descriptions per protein with different emphasis: one focused on function and mechanism, the other on evolutionary context and structural features.</p>
+
+  <h4 class="stagger">Two tiers of description quality</h4>
+
+  <p class="stagger"><strong>Tier 3a (all 569K proteins):</strong> Database-informed synthesis. Claude reads the SwissProt annotation and writes descriptions using its own scientific vocabulary. This covers the entire corpus.</p>
+
+  <p class="stagger"><strong>Tier 3b (well-characterized subset, ~20–50K proteins):</strong> Literature-informed synthesis. For proteins with substantial published literature (≥10 PubMed references), Claude also draws on abstracts from key publications. The descriptions capture structure-function reasoning, evolutionary logic, and mechanistic understanding — the kind of language a biophysicist would use in a review article. This is a deeper intervention that brings genuinely novel vocabulary into the corpus.</p>
+
+  <div class="warning stagger">
+    <p><strong>Quality control.</strong> 100 test samples are generated before committing to the full 569K. The test samples are reviewed for: genuine vocabulary diversity (not just reformatted keywords), biological accuracy, appropriate length (2–4 sentences), and absence of database syntax. The prompt template will likely require 1–2 iterations.</p>
+  </div>
+</section>
+
+<!-- ===== SECTION 7: WHAT TIER 3 PRODUCES ===== -->
+<section class="scene" id="s7">
+  <h2 class="stagger">Section 7 · What the LLM adds</h2>
+  <h3 class="stagger">Instructing a language model to redescribe 569,000 proteins in its own scientific vocabulary</h3>
+
+  <p class="stagger">Tier 3 descriptions are generated by Claude Sonnet 4.6 (Anthropic), a general-purpose language model with broad training across the scientific literature. The choice of model reflects two constraints. First, the model must have deep enough knowledge of protein biology, structural biochemistry, and evolutionary biology to rephrase SwissProt annotations in genuinely different vocabulary — not just rearrange the same keywords. A model trained only on database text would reproduce database vocabulary. A model trained on the broader scientific literature can draw on textbook descriptions, review articles, and mechanistic language that never appears in SwissProt. Second, the model must be cost-efficient at scale: 569,000 proteins × 2 descriptions ≈ 1.14 million API calls, processed via the Anthropic batch API at 50% discount. Sonnet 4.6 ($1.50/$7.50 per million tokens at batch pricing) provides the right balance of scientific depth and cost.</p>
+
+  <p class="stagger">The prompt design is where the vocabulary constraint is enforced. The system prompt instructs the model to rephrase every technical term — protein names into structural or functional descriptions, pathway names into mechanistic descriptions, organism names into plain language — and to write in the kind of scientific English a biophysicist would use in a review article. Two descriptions are requested per protein: one emphasizing function and mechanism, the other emphasizing evolutionary context and structural features. This ensures that PenCL sees each protein described with two distinct vocabularies, maximizing the diversity of z<sub>t</sub> vectors that the contrastive loss must pull together.</p>
+
+  <div class="prompt-box stagger" data-label="SYSTEM PROMPT">You are a protein biologist writing descriptions for a colleague who does not use database conventions. Your task: describe the protein in your own scientific language. You MUST rephrase every technical term and concept — do not copy phrases from the input. Use mechanistic and physicochemical language where possible.<br><br>Rules:<br>— NO database field prefixes (no "PROTEIN NAME:", "FUNCTION:", etc.)<br>— NO database identifiers (no accession numbers, PF IDs, GO terms)<br>— Rephrase protein names into structural/functional descriptions<br>— Rephrase pathway names into mechanistic descriptions<br>— Each description: 2–4 sentences of natural scientific English<br>— Include organism context, function, and any structural or biophysical detail</div>
+
+  <div class="prompt-box stagger" data-label="USER PROMPT">Here is the database annotation for this protein:<br><br>{text_caption}<br><br>Write two descriptions of this protein, each using different vocabulary and emphasis. Separate them with |||.<br><br>Description 1 should emphasize function and mechanism.<br>Description 2 should emphasize evolutionary context and structural features.</div>
+
+  <p class="stagger">The critical test is whether this prompt produces genuinely different vocabulary rather than reformatted keywords. 100 test proteins were generated and reviewed before committing to the full corpus. The test confirmed: zero database field prefixes, zero accession numbers, 0.19% residual keyword overlap, and consistent hedging on uncharacterized proteins (zero hallucinated functions across 10 uncharacterized entries). The following examples, drawn from the test set, illustrate what new vocabulary enters the PenCL training corpus across eight representative protein classes.</p>
+
+  <h4 class="stagger">A multi-domain enzyme: polyketide synthase</h4>
+
+  <div class="prompt-box stagger" data-label="SWISSPROT ANNOTATION (G3KLH6)">Non-reducing polyketide synthase adaA. FUNCTION: Non-reducing polyketide synthase (NRPKS); part of the gene cluster that mediates the biosynthesis of the linear tetracyclic TAN-1612 neuropeptide Y receptor antagonist...</div>
+
+  <div class="comparison stagger">
+    <div class="comparison-box good">
+      <h4>Description 1 — function and mechanism</h4>
+      <p>A non-reducing iterative polyketide assembly-line enzyme from a filamentous fungus constructs the decaketide carbon backbone of the neuropeptide-Y-receptor antagonist TAN-1612. It condenses a single acetyl-CoA starter with nine malonyl-CoA extender units and coordinates with a flavin-dependent hydroxylase that modifies the nascent chain at carbon-2 while still tethered to the synthase.</p>
+    </div>
+    <div class="comparison-box good">
+      <h4>Description 2 — evolution and structure</h4>
+      <p>This megasynthase comprises six catalytic segments arranged on a single polypeptide: a beta-ketoacyl condensation module, an acyltransferase selector, a product-template cyclization controller, an acyl carrier shuttle tethered via a phosphopantetheine arm, a starter-unit loading element, and a thioesterase release domain.</p>
+    </div>
+  </div>
+  <p class="caption stagger">New vocabulary: "assembly-line enzyme", "decaketide carbon backbone", "malonyl-CoA extender units", "phosphopantetheine arm", "product-template cyclization controller." None of these phrases appear in the SwissProt annotation.</p>
+
+  <h4 class="stagger">A membrane transporter: glucose transporter</h4>
+
+  <div class="prompt-box stagger" data-label="SWISSPROT ANNOTATION (Q07647)">Solute carrier family 2, facilitated glucose transporter member 3. FUNCTION: Facilitative glucose transporter that can also mediate the uptake of various other monosaccharides across the cell membrane...</div>
+
+  <div class="comparison stagger">
+    <div class="comparison-box good">
+      <h4>Description 1</h4>
+      <p>A facilitative monosaccharide uniporter in rat tissues that mediates the energy-independent permeation of glucose, galactose, mannose, and dehydroascorbate across the plasma membrane down their concentration gradients. This transporter is notable for its high affinity for glucose, making it the predominant isoform in neurons and other cell types with high constitutive energy demands.</p>
+    </div>
+    <div class="comparison-box good">
+      <h4>Description 2</h4>
+      <p>The protein threads the lipid bilayer twelve times, forming a pair of pseudo-symmetrical six-helix bundles that alternate between outward-open and inward-open conformations during the transport cycle. As a member of the major facilitator superfamily solute carrier group 2, it shares deep homology with plant hexose permeases, indicating that this transport mechanism predates the divergence of animals and plants.</p>
+    </div>
+  </div>
+  <p class="caption stagger">New vocabulary: "facilitative monosaccharide uniporter", "pseudo-symmetrical six-helix bundles", "outward-open and inward-open conformations", "plant hexose permeases." The transporter mechanism described in structural terms.</p>
+
+  <h4 class="stagger">A membrane complex: integrin alpha-11</h4>
+
+  <div class="prompt-box stagger" data-label="SWISSPROT ANNOTATION (P61622)">Integrin alpha-11. FUNCTION: Integrin alpha-11/beta-1 is a receptor for collagen. SUBUNIT: Heterodimer of an alpha and a beta subunit...</div>
+
+  <div class="comparison stagger">
+    <div class="comparison-box good">
+      <h4>Description 1</h4>
+      <p>A collagen-binding cell-surface adhesion receptor subunit in rodent connective tissues that heterodimerizes with a beta-1 partner to form a transmembrane signaling complex. Upon engagement with fibrillar collagen matrices, this receptor triggers intracellular cascades that regulate cell migration, extracellular matrix remodeling, and mechanotransduction.</p>
+    </div>
+    <div class="comparison-box good">
+      <h4>Description 2</h4>
+      <p>The extracellular segment contains a von Willebrand factor type-A inserted domain that directly coordinates a divalent metal ion at the collagen-binding face, flanked by a beta-propeller built from repeated seven-bladed modules. This architecture places it in the subset of vertebrate cell-adhesion receptors that do not undergo furin-mediated proteolytic maturation, retaining a single-chain topology.</p>
+    </div>
+  </div>
+  <p class="caption stagger">New vocabulary: "fibrillar collagen matrices", "mechanotransduction", "von Willebrand factor type-A inserted domain", "furin-mediated proteolytic maturation." Structural and mechanistic detail absent from the database.</p>
+
+  <h4 class="stagger">A binuclear metalloenzyme: dihydroorotase</h4>
+
+  <div class="prompt-box stagger" data-label="SWISSPROT ANNOTATION (Q9YFI5)">Dihydroorotase. FUNCTION: Catalyzes the reversible cyclization of carbamoyl aspartate to dihydroorotate. CATALYTIC ACTIVITY: (S)-dihydroorotate + H2O = H(+) + N-carbamoyl-L-aspartate. COFACTOR: Binds 2 Zn(2+) ions per subunit. PATHWAY: Pyrimidine metabolism...</div>
+
+  <div class="comparison stagger">
+    <div class="comparison-box good">
+      <h4>Description 1</h4>
+      <p>A binuclear zinc-dependent cyclase from a hyperthermophilic crenarchaeon that catalyzes the reversible ring closure of N-carbamoyl-L-aspartate to form dihydroorotate and water. This reaction constitutes the third committed step in the de novo biosynthetic route to uridine monophosphate, the precursor of all pyrimidine nucleotides required for nucleic acid synthesis.</p>
+    </div>
+    <div class="comparison-box good">
+      <h4>Description 2</h4>
+      <p>Isolated from Aeropyrum pernix, an aerobic archaeon thriving above 90°C in marine hydrothermal vents, this enzyme belongs to the metallo-dependent amidohydrolase superfamily and adopts a distorted triosephosphate isomerase barrel that coordinates two zinc ions at its active site. The Class I subfamily is distinguished from the eukaryotic form by existing as an independent polypeptide rather than a domain within a trifunctional fusion protein.</p>
+    </div>
+  </div>
+  <p class="caption stagger">New vocabulary: "binuclear zinc-dependent cyclase", "metallo-dependent amidohydrolase superfamily", "distorted triosephosphate isomerase barrel", "trifunctional fusion protein." The enzyme's structural context and evolutionary relationship described mechanistically.</p>
+
+  <h4 class="stagger">A ribosomal subunit in a multiprotein complex</h4>
+
+  <div class="prompt-box stagger" data-label="SWISSPROT ANNOTATION (Q9XD20)">50S ribosomal protein L18. FUNCTION: This is one of the proteins that binds and probably mediates the attachment of the 5S RNA into the large ribosomal subunit. SUBUNIT: Part of the 50S ribosomal subunit...</div>
+
+  <div class="comparison stagger">
+    <div class="comparison-box good">
+      <h4>Description 1</h4>
+      <p>A structural protein of the large ribosomal subunit from a spirochete bacterium that facilitates the incorporation of 5S ribosomal RNA into the translation machinery. By bridging the 5S and 23S ribosomal RNA molecules, this component contributes to the architectural integrity of the central protuberance, a region critical for communication between the peptidyl transferase center and the translational factor-binding site.</p>
+    </div>
+    <div class="comparison-box good">
+      <h4>Description 2</h4>
+      <p>This universally conserved ribosomal component from Leptospira adopts a mixed alpha-beta fold with an RNA-binding surface that contacts both the 5S and 23S ribosomal RNA chains. The uL18 protein family is found in all bacterial, archaeal, and organellar ribosomes, marking it as one of the most ancient protein-RNA interactions, likely present in the last universal common ancestor of cellular life.</p>
+    </div>
+  </div>
+  <p class="caption stagger">New vocabulary: "central protuberance", "peptidyl transferase center", "translational factor-binding site", "last universal common ancestor." Mechanistic context for a structural role.</p>
+
+  <h4 class="stagger">A membrane insertase: mitochondrial OXA1L</h4>
+
+  <div class="prompt-box stagger" data-label="SWISSPROT ANNOTATION (Q3SYV3)">Mitochondrial inner membrane protein OXA1L. FUNCTION: Required for the insertion of integral membrane proteins into the mitochondrial inner membrane. Essential for the activity and assembly of cytochrome oxidase...</div>
+
+  <div class="comparison stagger">
+    <div class="comparison-box good">
+      <h4>Description 1</h4>
+      <p>A membrane insertase of the bovine mitochondrial inner membrane that mediates co-translational integration of polytopic respiratory chain subunits synthesized by mitochondrial ribosomes. It is essential for proper assembly of cytochrome c oxidase and the proton-translocating ATP synthase.</p>
+    </div>
+    <div class="comparison-box good">
+      <h4>Description 2</h4>
+      <p>This protein belongs to the YidC/Oxa1/Alb3 family of membrane protein insertases that share a conserved five-transmembrane core domain and are found across all domains of life. The eukaryotic mitochondrial variant retains a long C-terminal coiled-coil extension that docks directly onto the large ribosomal subunit exit tunnel, coupling translation to membrane insertion in a manner inherited from the alpha-proteobacterial endosymbiont ancestor.</p>
+    </div>
+  </div>
+  <p class="caption stagger">New vocabulary: "co-translational integration of polytopic respiratory chain subunits", "ribosomal subunit exit tunnel", "alpha-proteobacterial endosymbiont ancestor." Evolutionary origin of a membrane biogenesis mechanism.</p>
+
+  <h4 class="stagger">A soluble domain: zinc finger CCCH protein</h4>
+
+  <div class="prompt-box stagger" data-label="SWISSPROT ANNOTATION (Q10EL1)">Zinc finger CCCH domain-containing protein 24. LINEAGE: The organism lineage is Eukaryota, Viridiplantae, Streptophyta... Poaceae... Oryzeae, Oryza, Oryza sativa...</div>
+
+  <div class="comparison stagger">
+    <div class="comparison-box good">
+      <h4>Description 1</h4>
+      <p>A rice protein that combines tandem ankyrin-type helical repeat modules with cysteine-cysteine-cysteine-histidine metal-coordinating RNA-binding motifs. The ankyrin repeats likely mediate protein-protein interactions, while the zinc-stabilized CCCH elements are predicted to bind single-stranded RNA and participate in post-transcriptional regulation of gene expression.</p>
+    </div>
+    <div class="comparison-box good">
+      <h4>Description 2</h4>
+      <p>This multidomain protein illustrates the modular evolutionary assembly common in plant regulatory factors. The juxtaposition of stacked helical repeats for scaffold interactions with metal-dependent RNA-recognition fingers suggests a role at the interface of signal transduction and transcript-level control, a combination frequently expanded in the genomes of flowering plants.</p>
+    </div>
+  </div>
+  <p class="caption stagger">This protein had only name + lineage in SwissProt — no FUNCTION field. The LLM infers fold and function from the name alone: "ankyrin-type helical repeat modules", "metal-coordinating RNA-binding motifs", "post-transcriptional regulation." Real biology, not hallucination, drawn from the model's knowledge of the zinc finger CCCH domain family.</p>
+
+  <h4 class="stagger">An uncharacterized protein</h4>
+
+  <div class="prompt-box stagger" data-label="SWISSPROT ANNOTATION (O13521)">Putative uncharacterized protein YPL035C. MISCELLANEOUS: Partially overlaps YPL034W. LINEAGE: Eukaryota, Fungi, Saccharomycotina, Saccharomyces cerevisiae...</div>
+
+  <div class="comparison stagger">
+    <div class="comparison-box good">
+      <h4>Description 1</h4>
+      <p>An open reading frame product from baker's yeast whose biochemical function has not been experimentally established. The gene partially overlaps with a neighboring coding sequence on the opposite strand, raising the possibility that it represents either a bona fide protein-coding gene or an artifact of computational gene prediction in the budding yeast genome.</p>
+    </div>
+    <div class="comparison-box good">
+      <h4>Description 2</h4>
+      <p>Located on chromosome XVI of Saccharomyces cerevisiae, this predicted protein lacks assignable conserved structural domains and has no clear orthologs outside the Saccharomycetaceae. Its ambiguous coding status and absence of recognizable fold signatures make it a candidate for experimental validation to determine whether it encodes a functional polypeptide or a non-coding element.</p>
+    </div>
+  </div>
+  <p class="caption stagger">For uncharacterized proteins, the LLM does not hallucinate function. It consistently uses hedged language ("has not been experimentally established", "ambiguous coding status") while adding genuine contextual information. Across 10 uncharacterized proteins in the test set, zero showed fabricated functional claims.</p>
+
+  <div class="callout stagger">
+    <p><strong>What PenCL learns from these descriptions.</strong> The contrastive loss pulls the SwissProt annotation's z<sub>t</sub> vector and the Tier 3 description's z<sub>t</sub> vector toward the same protein embedding. After training, PubMedBERT must map "glucose transporter" and "facilitative monosaccharide uniporter" to similar z<sub>t</sub> vectors — because they describe the same protein. "Polyketide synthase" and "assembly-line enzyme" must converge. "SH3 domain" and "proline-recognition module" must converge. This is how vocabulary invariance is built into the embedding geometry.</p>
+  </div>
+</section>
+
+<!-- ===== SECTION 8: TRAINING PROTOCOL ===== -->
+<section class="scene" id="s8">
+  <h2 class="stagger">Section 8 · Training protocol</h2>
+  <h3 class="stagger">Option A: format invariance from data diversity alone</h3>
+
+  <p class="stagger">The training protocol is deliberately conservative. No changes to the PenCL loss function (L<sub>GC</sub> + L<sub>PFC</sub> + L<sub>bML</sub> + L<sub>pML</sub>). No changes to the architecture (ESM2 650M + PubMedBERT 100M + projection heads). No changes to the joint embedding dimension (512). The only intervention is the training data and the per-batch dropout.</p>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Parameter</th><th>Original PenCL</th><th>Retrained PenCL</th></tr>
+      <tr><td>Corpus</td><td>~45M (SwissProt + Pfam)</td><td>~50M (+ augmented SwissProt tiers)</td></tr>
+      <tr><td>Text format</td><td>Uniform structured</td><td>Mixed: structured + dropout + NL + minimal</td></tr>
+      <tr><td>Per-batch dropout</td><td>None</td><td>Stochastic field dropout on all text</td></tr>
+      <tr><td>Loss function</td><td>L<sub>GC</sub> + L<sub>PFC</sub> + L<sub>bML</sub> + L<sub>pML</sub></td><td>Same — no changes</td></tr>
+      <tr><td>Trainable params</td><td>Final blocks of ESM2 + PubMedBERT + heads</td><td>Same</td></tr>
+      <tr><td>Batch construction</td><td>Sample SwissProt, find Pfam homologs</td><td>Same, with random tier selection per protein</td></tr>
+      <tr><td>Epochs</td><td>5 (design) / 20 (benchmark)</td><td>5–10, monitoring embedding geometry</td></tr>
+      <tr><td>Hardware</td><td>4× A100</td><td>Aurora: 64–128 nodes × 6 Intel PVC GPUs</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">The key mechanism: for each SwissProt protein in a batch, one text representation is sampled from a random tier (original, dropout variant, natural language, or minimal). Over training, the contrastive loss sees the same protein paired with all its text variants across different epochs. PubMedBERT's final transformer blocks adapt to extract protein-informative features from any text format — not just SwissProt syntax. The MLM loss (L<sub>bML</sub>) simultaneously trains PubMedBERT to understand biomedical language in diverse styles.</p>
+
+  <p class="stagger">This is Option A from the literature analysis: multi-view contrastive learning through data diversity. No explicit text-text contrastive term. No modifications to the projection heads or embedding dimension. The theoretical precedent is strong — SimCSE showed that dropout alone creates effective contrastive pairs; COSMOS showed that text cropping during contrastive training improves zero-shot performance; LAION-Audio showed that keyword-to-caption augmentation improves audio-text alignment. Our annotation dropout is a domain-specific, biologically principled version of these techniques.</p>
+</section>
+
+<!-- ===== SECTION 8: VALIDATION ===== -->
+<section class="scene" id="s9">
+  <h2 class="stagger">Section 9 · Validation cascade</h2>
+  <h3 class="stagger">Two stages of validation, one definitive success criterion</h3>
+
+  <h4 class="stagger">Stage 1: Embedding space validation (after PenCL retraining)</h4>
+
+  <p class="stagger">Before retraining the Facilitator or ProteoScribe, validate that the embedding space has the right geometry. For 1,000 proteins, compute z<sub>t</sub> embeddings from all text tiers and measure cosine similarity between tiers for the same protein. The retrained PenCL should map "PROTEIN NAME: SH3 domain. FUNCTION: Plasma membrane osmosensor..." and "A yeast transmembrane signaling adaptor whose proline-recognition module detects changes in external solute concentration..." to z<sub>t</sub> vectors with cosine similarity >0.8. The current PenCL achieves ~0.3–0.5.</p>
+
+  <p class="stagger">Simultaneously, proteins from different families must remain well-separated. The retrained PenCL must achieve clustering metrics (CHI, DBI) comparable to or better than the original, and standard benchmarks (zero-shot subcellular localization, remote homology detection) must not degrade.</p>
+
+  <h4 class="stagger">Stage 3: Fine-tuning validation (the definitive test)</h4>
+
+  <p class="stagger">Fine-tune ProteoScribe on SH3 142K with C7-style annotation dropout, using the retrained PenCL embeddings. Evaluate at epochs 49, 69, 99, 129, and 149 with all four prompts.</p>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Metric</th><th>Current (C7 ep69)</th><th>Current (C7 ep149)</th><th>Target (retrained, ep149)</th></tr>
+      <tr><td>P1 sector</td><td class="num">62.4%</td><td class="num">70.2%</td><td class="num good">≥80%</td></tr>
+      <tr><td>P-Full sector</td><td class="num">62.4%</td><td class="num bad">44.4%</td><td class="num good">≥70%</td></tr>
+      <tr><td>P5 sector</td><td class="num">52.0%</td><td class="num bad">33.2%</td><td class="num good">≥60%</td></tr>
+      <tr><td>P-Novel sector</td><td class="num">52.8%</td><td class="num bad">23.2%</td><td class="num good">≥50%</td></tr>
+      <tr><td>P1 – P-Novel gap</td><td class="num">9.6%</td><td class="num bad">47.0%</td><td class="num good">&lt;15%</td></tr>
+    </table>
+  </div>
+
+  <div class="key-finding stagger">
+    <p><strong>The success criterion is the P1–P-Novel gap at late epochs.</strong> Currently this gap explodes from 9.6% at epoch 69 to 47% at epoch 149 because PenCL maps P-Novel vocabulary to a z<sub>c</sub> region that Stage 3 excludes as it specializes. With retrained PenCL, all prompt vocabularies occupy the same z<sub>c</sub> region, so there is no region to exclude. The gap should remain below 15% at epoch 149+.</p>
+  </div>
+</section>
+
+<!-- ===== SECTION 9: STATUS ===== -->
+<section class="scene" id="s10">
+  <h2 class="stagger">Section 10 · Status and path forward</h2>
+  <h3 class="stagger">Corpus complete; pretraining launched on Aurora</h3>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Work item</th><th>Status</th><th>Output</th></tr>
+      <tr><td><strong>Track A:</strong> Pfam BLAST enrichment</td><td class="good">Complete</td><td>30.5M enriched (68.1%), sequences validated intact</td></tr>
+      <tr><td><strong>Phase 2:</strong> Multi-database enrichment</td><td class="good">Complete</td><td>LINEAGE 74.9%, EC for 812 families, 14.3M rebuilt</td></tr>
+      <tr><td><strong>Track C, Tier 2:</strong> Dropout variants</td><td class="good">Complete</td><td>2,847,580 rows (5 × 569K)</td></tr>
+      <tr><td><strong>Track C, Tier 4:</strong> Minimal descriptions</td><td class="good">Complete</td><td>569,516 rows</td></tr>
+      <tr><td><strong>Track B, Tier 3:</strong> LLM natural language</td><td class="good">Complete</td><td>1,064,643 rows (93.6% coverage, 0.14% keyword leak)</td></tr>
+      <tr><td><strong>Corpus assembly</strong></td><td class="good">Complete</td><td>49.8M pairs, 63.4 GB, staged on Aurora /flare</td></tr>
+      <tr><td><strong>Aurora port (CUDA → XPU)</strong></td><td class="good">Complete</td><td>PL_training.py + preprocess.py modified, deps installed</td></tr>
+      <tr><td><strong>Per-batch stochastic dropout</strong></td><td class="good">Complete</td><td>apply_field_dropout() in Pfam_TextSeqPairing_Dataset.__getitem__</td></tr>
+      <tr><td><strong>PenCL Run 1 (no sectors)</strong></td><td class="neutral">Debug on Aurora</td><td>4 nodes × 6 GPU tiles, bf16-mixed, 10 epochs</td></tr>
+      <tr><td><strong>Pfam-wide SCA (Run 2 prep)</strong></td><td class="neutral">In progress</td><td>IC decomposition for ~20K families, batch runner building</td></tr>
+      <tr><td><strong>Text encoder evaluation</strong></td><td>Designed</td><td>SciLitLLM-7B vs PubMedBERT — 4 empirical tests</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">All corpus construction is complete. The 49.8 million pair corpus — comprising 5.05M augmented SwissProt rows and 44.8M enriched Pfam rows — is staged on Aurora at <code>/flare/NLDesignProtein/rama/pencl_data/</code>. The CUDA-to-XPU port is applied, per-batch stochastic annotation dropout is implemented, and the debug job has been submitted to Aurora (4 nodes, 24 Intel PVC GPU tiles, bf16-mixed precision). In parallel, the Pfam-wide SCA pipeline is building toward IC annotations for Run 2, and the text encoder evaluation (SciLitLLM-7B vs PubMedBERT) is designed and ready to execute on the DGX Spark.</p>
+
+  <div class="callout stagger">
+    <p><strong>The core prediction.</strong> After PenCL retraining with diverse text + annotation dropout, z<sub>c</sub> vectors for SwissProt annotations, SGD-style prompts, pathway descriptions, and free-form English descriptions of the same protein will have cosine similarity &gt;0.8. This will make the C7 epoch 69 window permanent — P1–P-Novel gap &lt;15% at fine-tuning convergence.</p>
+  </div>
+
+  <p class="stagger chapter-nav">Part of the generalization-preserving fine-tuning series · Ranganathan Lab · April 2026</p>
+</section>
+
+<script>
+const scenes=document.querySelectorAll('.scene');const dotNav=document.getElementById('dotNav');
+scenes.forEach((s,i)=>{const a=document.createElement('a');a.href='#'+s.id;dotNav.appendChild(a)});
+const dots=dotNav.querySelectorAll('a');
+function onScroll(){const st=window.scrollY;const dh=document.documentElement.scrollHeight-window.innerHeight;
+document.getElementById('progressBar').style.width=(st/dh*100)+'%';
+document.querySelectorAll('.stagger:not(.visible)').forEach(el=>{if(el.getBoundingClientRect().top<window.innerHeight*0.85)el.classList.add('visible')});
+let c=0;scenes.forEach((s,i)=>{if(st>=s.offsetTop-window.innerHeight/2)c=i});
+dots.forEach((d,i)=>d.classList.toggle('active',i===c))}
+window.addEventListener('scroll',onScroll);onScroll();
+scenes.forEach(scene=>{scene.querySelectorAll('.stagger').forEach((el,i)=>{el.style.transitionDelay=(i*0.08)+'s'})});
+</script>
+</body>
+</html>

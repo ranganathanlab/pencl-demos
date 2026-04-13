@@ -3,25 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PenCL Demos</title>
+<title>PenCL Demos & Notes</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap">
 <style>
 :root{--bg:#fffff8;--text:#1a1a1a;--text-secondary:#666;--accent:#8b0000;--accent-light:rgba(139,0,0,0.08);--code-bg:#f5f3ef;--mono:'IBM Plex Mono',monospace;--sans:'DM Sans',sans-serif;--border:#e0ddd5;--green:#2d7d46;--green-light:rgba(45,125,70,0.08);--gold:#b8860b;--gold-light:rgba(184,134,11,0.08);--blue:#2d5f8a;--blue-light:rgba(45,95,138,0.08)}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.72}
-.header{font-family:var(--mono);font-size:11.5px;color:var(--text-secondary);letter-spacing:.04em;padding:40px 10vw 0;margin-bottom:8px}
+.header{font-family:var(--mono);font-size:12px;color:var(--text-secondary);letter-spacing:.04em;padding:40px 10vw 0;margin-bottom:8px}
 h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-bottom:16px;color:var(--text)}
-.subtitle{font-size:17px;padding:0 10vw;max-width:800px;margin-bottom:48px;color:var(--text-secondary);line-height:1.7}
-.cards{padding:0 10vw;display:flex;flex-direction:column;gap:20px;max-width:900px;margin-bottom:80px}
+.subtitle{font-size:18px;padding:0 10vw;max-width:860px;margin-bottom:48px;color:var(--text-secondary);line-height:1.7}
+.section-header{padding:0 10vw;margin-bottom:20px}
+.section-label{font-family:var(--mono);font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+.section-title{font-family:var(--sans);font-size:26px;font-weight:700;color:var(--text)}
+.section-desc{font-size:16px;color:var(--text-secondary);max-width:700px;margin-top:6px}
+.cards{padding:0 10vw;display:flex;flex-direction:column;gap:20px;max-width:900px;margin-bottom:56px}
 .card{display:block;border:1px solid var(--border);border-radius:10px;padding:28px 32px;text-decoration:none;color:var(--text);transition:all .25s ease;position:relative;overflow:hidden;background:#fff}
 .card:hover{border-color:var(--accent);box-shadow:0 4px 16px rgba(139,0,0,0.06);transform:translateY(-2px)}
 .card.coming{opacity:0.55;pointer-events:none}
 .card.coming:hover{transform:none;box-shadow:none;border-color:var(--border)}
 .card-top{display:flex;align-items:baseline;gap:12px;margin-bottom:8px}
-.demo-num{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--accent);letter-spacing:.04em}
+.demo-num{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--accent);letter-spacing:.04em}
 .card-title{font-size:20px;font-weight:600;line-height:1.3}
-.card-desc{font-size:15px;color:var(--text-secondary);line-height:1.65;margin-bottom:14px;max-width:680px}
+.card-desc{font-size:16px;color:var(--text-secondary);line-height:1.65;margin-bottom:14px;max-width:680px}
 .tags{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .tag{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.04em;padding:3px 10px;border-radius:4px;background:var(--code-bg);color:var(--text-secondary)}
 .tag.accent{background:var(--accent-light);color:var(--accent)}
@@ -31,17 +35,25 @@ h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-
 .tag.coming-tag{background:var(--code-bg);color:#aaa}
 .arrow{font-family:var(--mono);font-size:18px;color:var(--accent);position:absolute;right:28px;top:50%;transform:translateY(-50%);transition:transform .2s}
 .card:hover .arrow{transform:translateY(-50%) translateX(4px)}
-.footer{padding:20px 10vw 60px;font-family:var(--mono);font-size:11px;color:var(--text-secondary);line-height:2}
+.divider{border:none;border-top:1px solid var(--border);margin:8px 10vw 40px}
+.footer{padding:20px 10vw 60px;font-family:var(--mono);font-size:12px;color:var(--text-secondary);line-height:2}
 .footer a{color:var(--accent);text-decoration:none}
 .footer a:hover{text-decoration:underline}
-@media(max-width:800px){.header,h1,.subtitle,.cards,.footer{padding-left:6vw;padding-right:6vw}h1{font-size:32px}.card{padding:20px 24px}}
+@media(max-width:800px){.header,h1,.subtitle,.cards,.footer,.section-header{padding-left:6vw;padding-right:6vw}.divider{margin-left:6vw;margin-right:6vw}h1{font-size:32px}.card{padding:20px 24px}}
 </style>
 </head>
 <body>
 
 <div class="header">Ranganathan Lab · University of Chicago</div>
-<h1>PenCL Demos</h1>
-<p class="subtitle">Interactive demonstrations from the PenCL retraining project — rebuilding the text-protein embedding space for natural language protein design. PenCL was trained on 45 million text-protein pairs in a single annotation format. These demos document the corpus reconstruction, sector architecture analysis, and retraining that make the embedding space format-invariant.</p>
+<h1>PenCL Pretraining</h1>
+<p class="subtitle">Interactive demonstrations and engineering notes from the PenCL retraining project — rebuilding the text-protein embedding space for natural language protein design.</p>
+
+<!-- ===== DEMOS ===== -->
+<div class="section-header">
+  <div class="section-label">Demos</div>
+  <div class="section-title">The scientific story</div>
+  <p class="section-desc">What we did and what we learned. Each demo is a self-contained narrative with interactive visualizations.</p>
+</div>
 
 <div class="cards">
 
@@ -50,13 +62,12 @@ h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-
       <span class="demo-num">Demo 1</span>
       <span class="card-title">Tier 3 — Natural Language Protein Descriptions</span>
     </div>
-    <p class="card-desc">100 SwissProt proteins described in genuinely diverse scientific vocabulary by Claude Sonnet. Each protein is shown with its original database annotation alongside two LLM-generated descriptions — one from a molecular/cellular perspective, one from a structural/evolutionary perspective — demonstrating the vocabulary shift that teaches PenCL format invariance.</p>
+    <p class="card-desc">100 SwissProt proteins described in genuinely diverse scientific vocabulary by Claude Sonnet. Each protein shown with its original database annotation alongside two LLM-generated descriptions — molecular/cellular and structural/evolutionary — demonstrating the vocabulary shift that teaches PenCL format invariance.</p>
     <div class="tags">
       <span class="tag accent">569K proteins</span>
       <span class="tag green">1.06M descriptions</span>
       <span class="tag blue">Claude Sonnet batch API</span>
       <span class="tag">Searchable gallery</span>
-      <span class="tag">Scroll narrative</span>
     </div>
     <span class="arrow">→</span>
   </a>
@@ -66,11 +77,10 @@ h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-
       <span class="demo-num">Demo 2</span>
       <span class="card-title">Pfam-wide SCA — Sector Architecture Across 20,000 Families</span>
     </div>
-    <p class="card-desc">Automated decomposition of every Pfam-A family into independent components using statistical coupling analysis. Validation on S1A serine proteases, chorismate mutases, SH3 domains, and AMP-binding enzymes. Physical connectivity distinguishes sectors (cooperative functional cores) from co-sectors (tunable structural shells).</p>
+    <p class="card-desc">Automated decomposition of every Pfam-A family into independent components using statistical coupling analysis. Physical connectivity distinguishes sectors from co-sectors. Validation on four families spanning viral capsids to metabolic enzymes.</p>
     <div class="tags">
-      <span class="tag coming-tag">~18K families</span>
+      <span class="tag coming-tag">~19K families</span>
       <span class="tag coming-tag">IC decomposition</span>
-      <span class="tag coming-tag">Sector classification</span>
       <span class="tag coming-tag">Coming soon</span>
     </div>
     <span class="arrow">→</span>
@@ -79,12 +89,10 @@ h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-
   <a class="card coming" href="#">
     <div class="card-top">
       <span class="demo-num">Demo 3</span>
-      <span class="card-title">PenCL Run 1 — Embedding Space Geometry After Corpus Diversification</span>
+      <span class="card-title">PenCL Embedding Geometry — Run 1 vs Original</span>
     </div>
-    <p class="card-desc">Does training on a format-diverse 49.8M pair corpus fix the vocabulary memorization problem? Comparing the embedding space of the retrained PenCL (Run 1) against the original: within-protein format consistency, inter-family separation, and cross-format retrieval.</p>
+    <p class="card-desc">Does training on a format-diverse 49.8M pair corpus fix vocabulary memorization? Comparing embedding spaces: within-protein format consistency, inter-family separation, and cross-format retrieval.</p>
     <div class="tags">
-      <span class="tag coming-tag">49.8M pairs</span>
-      <span class="tag coming-tag">Aurora XPU</span>
       <span class="tag coming-tag">Embedding analysis</span>
       <span class="tag coming-tag">Coming soon</span>
     </div>
@@ -94,12 +102,10 @@ h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-
   <a class="card coming" href="#">
     <div class="card-top">
       <span class="demo-num">Demo 4</span>
-      <span class="card-title">PenCL Run 2 — Sector Annotations Shape the Embedding Space</span>
+      <span class="card-title">PenCL + Sectors — Run 2 Embedding Space</span>
     </div>
-    <p class="card-desc">Adding IC-level functional architecture to the training corpus and the loss function. Do proteins with similar sector residues cluster together regardless of text format? Comparing Run 2 (with sector annotations + ℒ_sector) against Run 1 (corpus diversity alone).</p>
+    <p class="card-desc">Adding IC-level functional architecture to the corpus and loss function. Do proteins with similar sector residues cluster together regardless of text format?</p>
     <div class="tags">
-      <span class="tag coming-tag">IC annotations</span>
-      <span class="tag coming-tag">ℒ_sector loss</span>
       <span class="tag coming-tag">Run 1 vs Run 2</span>
       <span class="tag coming-tag">Coming soon</span>
     </div>
@@ -111,12 +117,68 @@ h1{font-family:var(--sans);font-size:42px;font-weight:700;padding:0 10vw;margin-
       <span class="demo-num">Demo 5</span>
       <span class="card-title">ProteoScribe — Protein Design from Natural Language Prompts</span>
     </div>
-    <p class="card-desc">The definitive test: fine-tune ProteoScribe with the retrained PenCL and measure prompt generalization. Does the P1–P-Novel gap stay below 15% at convergence? Can we design functional SH3 domains from conversational English prompts?</p>
+    <p class="card-desc">The definitive test: fine-tune ProteoScribe with retrained PenCL and measure prompt generalization. P1–P-Novel gap below 15% at convergence?</p>
     <div class="tags">
-      <span class="tag coming-tag">Prompt generalization</span>
-      <span class="tag coming-tag">Sector conservation</span>
       <span class="tag coming-tag">Validation cascade</span>
       <span class="tag coming-tag">Coming soon</span>
+    </div>
+    <span class="arrow">→</span>
+  </a>
+
+</div>
+
+<hr class="divider">
+
+<!-- ===== NOTES ===== -->
+<div class="section-header">
+  <div class="section-label">Didactic Notes</div>
+  <div class="section-title">The engineering story</div>
+  <p class="section-desc">How we built it and what went wrong. Each note documents the design decisions, implementation details, and debugging narrative behind one component of the project.</p>
+</div>
+
+<div class="cards">
+
+  <a class="card" href="16_rebuilding_the_corpus.html">
+    <div class="card-top">
+      <span class="demo-num">Note 16</span>
+      <span class="card-title">Rebuilding the Corpus</span>
+    </div>
+    <p class="card-desc">Construction of the 49.8 million pair training corpus: 5.05M augmented SwissProt rows across 4 tiers (original, dropout variants, LLM natural language, minimal) plus 44.8M enriched Pfam rows with BLAST-transferred annotations, corrected lineages, and enzyme classifications.</p>
+    <div class="tags">
+      <span class="tag accent">49.8M pairs</span>
+      <span class="tag green">63.4 GB</span>
+      <span class="tag blue">5 enrichment databases</span>
+      <span class="tag gold">4 text tiers</span>
+    </div>
+    <span class="arrow">→</span>
+  </a>
+
+  <a class="card" href="17_sector_architecture_across_pfam.html">
+    <div class="card-top">
+      <span class="demo-num">Note 17</span>
+      <span class="card-title">Sector Architecture Across Pfam</span>
+    </div>
+    <p class="card-desc">Automated SCA decomposition of ~20,000 Pfam-A families into independent components. Why ICs (not merged sectors) are the training signal. Why connectivity (not phylogeny) defines the classification. Two-pass architecture from MSA to PDB-numbered annotations.</p>
+    <div class="tags">
+      <span class="tag accent">19,578 families</span>
+      <span class="tag green">816K IC positions</span>
+      <span class="tag blue">4 validation families</span>
+      <span class="tag gold">ℒ_sector loss</span>
+    </div>
+    <span class="arrow">→</span>
+  </a>
+
+  <a class="card" href="18_pencl_on_aurora.html">
+    <div class="card-top">
+      <span class="demo-num">Note 18</span>
+      <span class="card-title">PenCL on Aurora</span>
+    </div>
+    <p class="card-desc">Porting PenCL contrastive pretraining from NVIDIA CUDA to Intel XPU on the Aurora exascale system. Five training-specific fixes, the debugging narrative from lost logs to confirmed loss values, and the scaling path from 1 tile to 48-tile production.</p>
+    <div class="tags">
+      <span class="tag accent">761M parameters</span>
+      <span class="tag green">Single-tile confirmed</span>
+      <span class="tag blue">XCCL backend</span>
+      <span class="tag gold">48-tile target</span>
     </div>
     <span class="arrow">→</span>
   </a>

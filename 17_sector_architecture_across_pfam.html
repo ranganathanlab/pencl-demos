@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Note 17 · Sector Architecture Across Pfam</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap">
+<style>
+:root{--bg:#fffff8;--text:#1a1a1a;--text-secondary:#666;--accent:#8b0000;--accent-light:rgba(139,0,0,0.08);--code-bg:#f5f3ef;--mono:'IBM Plex Mono',monospace;--sans:'DM Sans',sans-serif;--border:#e0ddd5;--green:#2d7d46;--green-light:rgba(45,125,70,0.08);--gold:#b8860b;--gold-light:rgba(184,134,11,0.08);--blue:#2d5f8a;--blue-light:rgba(45,95,138,0.08)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.72;overflow-x:hidden}
+.progress-bar{position:fixed;top:0;left:0;height:3px;background:var(--accent);z-index:100;transition:width .2s}
+.dot-nav{position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:99;display:flex;flex-direction:column;gap:8px}
+.dot-nav a{width:8px;height:8px;border-radius:50%;background:var(--border);display:block;transition:all .3s}
+.dot-nav a.active{background:var(--accent);transform:scale(1.3)}
+.scene{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:60px 10vw;position:relative}
+@media(max-width:800px){.scene{padding:40px 6vw}}
+.stagger{opacity:0;transform:translateY(18px);transition:opacity .55s ease,transform .55s ease}
+.stagger.visible{opacity:1;transform:translateY(0)}
+h2{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+h3{font-family:var(--sans);font-size:28px;font-weight:700;line-height:1.25;margin-bottom:16px;max-width:720px}
+h4{font-family:var(--mono);font-size:11px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;margin:20px 0 8px 0}
+p{font-size:16.5px;max-width:680px;margin-bottom:14px}
+.scene.dark{background:#1a1a1a;color:#f5f5f0}
+.scene.dark h2{color:var(--accent);opacity:.9}
+.scene.dark h3{color:#f5f5f0;font-size:32px;max-width:760px}
+.scene.dark p{color:#ccc;font-size:15.5px}
+.scene.dark .meta{font-family:var(--mono);font-size:11.5px;color:#888;margin-top:32px;line-height:2}
+.scene.dark .meta span{display:block}
+.scene.dark .chapter-num{font-family:var(--mono);font-size:72px;font-weight:700;color:rgba(139,0,0,0.3);margin-bottom:12px;line-height:1}
+.callout{background:var(--accent-light);border-left:3px solid var(--accent);border-radius:6px;padding:16px 20px;margin:18px 0;max-width:680px}
+.callout p{margin-bottom:4px;font-size:15.5px}
+.callout strong{color:var(--accent)}
+.key-finding{background:var(--green-light);border-left:3px solid var(--green);border-radius:6px;padding:16px 20px;margin:18px 0;max-width:680px}
+.key-finding p{margin-bottom:4px;font-size:15.5px}
+.key-finding strong{color:var(--green)}
+.warning{background:var(--gold-light);border-left:3px solid var(--gold);border-radius:6px;padding:16px 20px;margin:18px 0;max-width:680px}
+.warning p{margin-bottom:4px;font-size:15.5px}
+.warning strong{color:var(--gold)}
+.defn{background:var(--code-bg);border-radius:6px;padding:16px 20px;margin:16px 0;max-width:680px}
+.defn p{font-size:15px;margin-bottom:4px}
+.table-wrap{max-width:740px;overflow-x:auto;margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th{font-family:var(--mono);font-weight:400;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);text-align:left;padding:8px 10px;border-bottom:2px solid var(--border)}
+td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+td.num{font-family:var(--mono);text-align:right}
+td.good{color:var(--green);font-weight:600}
+td.bad{color:var(--accent);font-weight:500}
+td.neutral{color:var(--text-secondary)}
+code{font-family:var(--mono);font-size:13.5px;background:var(--code-bg);padding:2px 6px;border-radius:4px}
+.prompt-box{font-family:var(--mono);font-size:13px;background:var(--code-bg);border-radius:6px;padding:14px 18px;margin:14px 0;max-width:680px;line-height:1.65;position:relative;overflow-wrap:break-word}
+.prompt-box::before{content:attr(data-label);font-family:var(--mono);font-size:9px;font-weight:500;color:var(--accent);letter-spacing:.08em;position:absolute;top:-8px;left:14px;background:var(--bg);padding:0 6px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0;max-width:720px}
+.stat-box{background:var(--code-bg);border-radius:6px;padding:14px 16px}
+.stat-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary)}
+.stat-value{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--accent)}
+.stat-value.green{color:var(--green)}
+.stat-value.gold{color:var(--gold)}
+.stat-value.blue{color:var(--blue)}
+.chapter-nav{font-family:var(--mono);font-size:11px;color:var(--text-secondary);margin-top:40px}
+.eq{font-family:var(--mono);font-size:14px;background:var(--code-bg);border-radius:6px;padding:12px 18px;margin:14px 0;max-width:680px;line-height:1.8;text-align:center}
+.comparison{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:700px;margin:16px 0}
+@media(max-width:600px){.comparison{grid-template-columns:1fr}}
+.comparison-box{border-radius:6px;padding:14px 18px;font-size:14px;line-height:1.6}
+.comparison-box.pass1{background:var(--gold-light);border:1px solid rgba(184,134,11,0.2)}
+.comparison-box.pass2{background:var(--green-light);border:1px solid rgba(45,125,70,0.2)}
+.comparison-box.without{background:var(--accent-light);border:1px solid rgba(139,0,0,0.15)}
+.comparison-box.with{background:var(--green-light);border:1px solid rgba(45,125,70,0.2)}
+.comparison-box h4{margin-top:0}
+.ic-label{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:500;padding:2px 8px;border-radius:3px;margin-right:4px}
+.ic-sector{background:rgba(45,125,70,0.15);color:var(--green)}
+.ic-cosector{background:rgba(184,134,11,0.15);color:var(--gold)}
+.ic-borderline{background:rgba(45,95,138,0.15);color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="progress-bar" id="progressBar"></div>
+<nav class="dot-nav" id="dotNav"></nav>
+
+<!-- ===== TITLE ===== -->
+<section class="scene dark" id="s0">
+  <div class="chapter-num stagger">17</div>
+  <h2 class="stagger">Generalization-Preserving Fine-tuning of BioM3 · Didactic Note 17</h2>
+  <h3 class="stagger">Sector architecture across Pfam: from manual analysis to automated decomposition</h3>
+  <p class="stagger">Protein families contain small groups of coevolving amino acid positions — sectors — that form physically connected networks responsible for distinct functional properties. This note describes how statistical coupling analysis decomposes every Pfam-A family into independent components, how physical connectivity distinguishes sectors from co-sectors, and how this decomposition enters PenCL pretraining as both a text annotation and a geometric loss term.</p>
+  <div class="meta stagger">
+    <span>Ranganathan Lab · Center for Physics of Evolving Systems · University of Chicago</span>
+    <span>BioM3 ProteoScribe · Pfam-wide SCA · April 2026</span>
+  </div>
+</section>
+
+<!-- ===== SECTION 1: THE QUESTION ===== -->
+<section class="scene" id="s1">
+  <h2 class="stagger">Section 1 · The question</h2>
+  <h3 class="stagger">What is the internal architecture of a protein family?</h3>
+  <p class="stagger">A protein family is an ensemble of sequences that share a common fold and descend from a common ancestor. The sequences in this ensemble are not random — they are constrained by natural selection to maintain function. But which positions are constrained together? Which groups of amino acids must change in concert, and which can vary independently?</p>
+  <p class="stagger">The answer defines the <em>internal architecture</em> of the family: a decomposition of the protein into quasi-independent functional units. Each unit is a small set of positions, distributed across the linear sequence but physically connected in the three-dimensional structure, that collectively control a distinct functional property — catalysis, substrate binding, allosteric communication, or structural stability.</p>
+  <p class="stagger">These units are called <strong>sectors</strong>. They were first identified in the PDZ domain family by Lockless and Ranganathan (1999) and subsequently characterized in the S1A serine protease, DHFR, and Hsp70 families. In the S1A family, Halabi et al. (2009) showed that three sectors independently control catalytic function, substrate specificity, and fold stability. Generative design experiments with BioM3 confirmed that preserving sector positions is necessary and sufficient for function: 72% of designs are functional when sector residues are conserved, versus 8% when they are disrupted (Kleeorin et al., 2023).</p>
+  <p class="stagger">The question for this note: can we identify the coevolutionary architecture of <em>every</em> Pfam-A family — all ~20,000 of them — using an automated pipeline? And can we use this architecture to teach BioM3 about the functional organization of proteins?</p>
+</section>
+
+<!-- ===== SECTION 2: ICs AS THE NATURAL DECOMPOSITION ===== -->
+<section class="scene" id="s2">
+  <h2 class="stagger">Section 2 · Independent components</h2>
+  <h3 class="stagger">The natural evolutionary decomposition of a protein family</h3>
+  <p class="stagger">Statistical coupling analysis (SCA) computes the positional coevolution matrix C̃ from a multiple sequence alignment. Eigendecomposition of C̃ reveals k* significant collective modes (typically 4–8 per family). Rotation of these eigenmodes by independent component analysis (ICA) yields k* independent components (ICs), each identifying a subset of alignment positions that coevolve as a unit.</p>
+  <p class="stagger">Each IC is defined by two things: a list of positions and a set of loadings. The positions are the alignment columns that belong to this IC (above a 5% CDF cutoff from a t-distribution fit). The loadings quantify each position's contribution — a position with loading 0.92 participates more strongly than one with loading 0.45.</p>
+  <div class="callout stagger">
+    <p><strong>Why ICs, not merged sectors?</strong> The original SCA literature grouped ICs into "sectors" by re-clustering the coevolution sub-matrix. We tested this inter-IC grouping approach on four families. In S1A, it merges the catalytic IC (IC2) with the specificity IC (IC5) — losing the functional decomposition. In CM AroQ and SH3, no IC pairs cross the grouping threshold. In PF00296, the grouping is inconsistent. ICs are the natural evolutionary decomposition; merging them discards information.</p>
+  </div>
+  <p class="stagger">This is the essential design decision: <strong>the robust IC is the primary training signal for PenCL, not the merged sector.</strong> Two proteins with similar amino acids at high-loading IC positions should have similar text embeddings. The IC loadings define the weighting. Sector and co-sector labels are metadata for biological interpretation, not weights in the training objective.</p>
+</section>
+
+<!-- ===== SECTION 3: SECTORS AND CO-SECTORS ===== -->
+<section class="scene" id="s3">
+  <h2 class="stagger">Section 3 · Sectors and co-sectors</h2>
+  <h3 class="stagger">Physical connectivity defines the cooperative core versus the tunable shell</h3>
+  <p class="stagger">Not every IC is a sector. Some ICs form physically connected networks — their positions are spatially contiguous, forming a cooperative unit where mutations have all-or-nothing functional effects. Others are fragmented — their positions scatter across the structure, tiling the surface around the connected ICs, coevolving because mutations in the core require compensating mutations in the surrounding shell.</p>
+  <div class="defn stagger">
+    <h4>Classification algorithm</h4>
+    <p><strong>Step 0 — Signal quality.</strong> Compute self/background ratio: mean |C̃| within IC / mean |C̃| over non-IC positions. If self/bg &lt; 3×, the IC is noise — discard.</p>
+    <p><strong>Step 1 — Connectivity.</strong> Map IC positions onto the structure (reference PDB or AlphaFold model). Positions in contact if Cα–Cα &lt; 8 Å. If &gt;50% of the IC's positions fall in one connected component → <strong>sector</strong>. Otherwise → Step 2.</p>
+    <p><strong>Step 2 — Sector contact.</strong> If &gt;80% of the fragmented IC's positions contact a sector position → <strong>co-sector</strong>. Otherwise → <strong>orphan</strong>.</p>
+  </div>
+  <p class="stagger">The defining criterion is physical connectivity alone. We tested phylogenetic separation (η², the fraction of IC-projection variance explained by taxonomy) as a second classifier but rejected it. The decisive case is CM AroQ (PF01817): an all-bacterial family where every IC has η² > 0.02 because functional and phylogenetic divergence are correlated. The connected ICs are still sectors — they control substrate binding and catalytic geometry. Making η² a classifier would misclassify them.</p>
+  <div class="key-finding stagger">
+    <p><strong>Phylogeny as metadata, not classification.</strong> η² is computed for every IC and reported in the annotation — "IC2 (sector, η²=0.002, not phylogenetic)" vs "IC1 (co-sector, η²=0.085, Metazoa-enriched)" — but the sector/co-sector label comes from connectivity only.</p>
+  </div>
+</section>
+
+<!-- ===== SECTION 4: SCA PIPELINE ===== -->
+<section class="scene" id="s4">
+  <h2 class="stagger">Section 4 · The SCA pipeline</h2>
+  <h3 class="stagger">Five stages from alignment to IC decomposition</h3>
+  <p class="stagger"><strong>Stage 1: Sequence weighting.</strong> Downweight redundant sequences so each independent lineage contributes equally. GPU-accelerated (CuPy): 29–37× speedup, reducing SH3 (168K sequences) from 18 minutes to 30 seconds.</p>
+  <p class="stagger"><strong>Stage 2: Coevolution matrix.</strong> For each position pair (i, j), compute C̃<sub>ij</sub> — how much knowing position i constrains position j, beyond conservation.</p>
+  <p class="stagger"><strong>Stage 3: Spectral decomposition.</strong> Eigendecomposition of C̃. We fix k* = 6 for all families — ICs with no positions above the 5% CDF cutoff self-select out as noise.</p>
+  <p class="stagger"><strong>Stage 4: ICA rotation.</strong> Rotate the top k* eigenvectors to maximize statistical independence. Fit t-distributions to assign positions per IC.</p>
+  <p class="stagger"><strong>Stage 5: IC characterization.</strong> Per IC: signal quality (self/bg ratio), per-protein amino acid extraction at IC positions, phylogenetic η² from sequence projections grouped by taxonomy. If a structure is available: connectivity classification.</p>
+  <div class="stats-grid stagger">
+    <div class="stat-box"><div class="stat-label">GPU time per family</div><div class="stat-value">3–42 s</div></div>
+    <div class="stat-box"><div class="stat-label">Pfam-A families</div><div class="stat-value blue">~20,000</div></div>
+    <div class="stat-box"><div class="stat-label">Estimated total</div><div class="stat-value gold">1–2 h</div></div>
+    <div class="stat-box"><div class="stat-label">k* (fixed)</div><div class="stat-value green">6</div></div>
+  </div>
+</section>
+
+<!-- ===== SECTION 5: VALIDATION ===== -->
+<section class="scene" id="s5">
+  <h2 class="stagger">Section 5 · Validation on four families</h2>
+  <h3 class="stagger">The automated algorithm recovers expert classifications</h3>
+  <h4 class="stagger">S1A serine proteases (PF00089) — 30,687 sequences, 76 IC positions</h4>
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>IC</th><th>Type</th><th>Pos</th><th>Conn</th><th>η²</th><th>Interpretation</th></tr>
+      <tr><td><span class="ic-label ic-sector">IC2</span></td><td class="good">SECTOR</td><td class="num">17</td><td class="num">1.00</td><td class="num">0.002</td><td>Catalytic machinery (Green sector). Contains H57 D102 S195 catalytic triad.</td></tr>
+      <tr><td><span class="ic-label ic-sector">IC5</span></td><td class="good">SECTOR</td><td class="num">17</td><td class="num">0.94</td><td class="num">0.009</td><td>Substrate specificity (Red sector). Separates trypsin, chymotrypsin, elastase.</td></tr>
+      <tr><td><span class="ic-label ic-sector">IC4</span></td><td class="good">SECTOR</td><td class="num">10</td><td class="num">1.00</td><td class="num">0.106</td><td>Connected, phylogenetically segregating (Metazoa vs Bacteria).</td></tr>
+      <tr><td><span class="ic-label ic-borderline">IC3</span></td><td class="neutral">SECTOR</td><td class="num">8</td><td class="num">0.62</td><td class="num">0.067</td><td>Connected, phylogenetically segregating (Metazoa vs rest).</td></tr>
+      <tr><td><span class="ic-label ic-cosector">IC1</span></td><td class="bad">CO-SECTOR</td><td class="num">14</td><td class="num">0.29</td><td class="num">0.085</td><td>Fragmented (5 components), 93% contact sector. Structural shell.</td></tr>
+      <tr><td><span class="ic-label ic-cosector">IC6</span></td><td class="bad">CO-SECTOR</td><td class="num">10</td><td class="num">0.40</td><td class="num">0.055</td><td>Fragmented (5 components), 90% contact sector.</td></tr>
+    </table>
+  </div>
+  <p class="stagger">IC2 and IC5 are the functional sectors — fully connected, η² near zero. IC1 and IC6 are co-sectors — fragmented, phylogenetically segregating, physically surrounding the sectors at backbone distance. IC3 and IC4 are connected but phylogenetically segregating — the "blue sector" of Halabi et al. is not a third functional mode but a composite of lineage-specific tuning elements. This refinement required expert analysis in the original work; the automated pipeline identifies it from connectivity and η² metadata alone.</p>
+  <h4 class="stagger">Additional families</h4>
+  <p class="stagger"><strong>CM AroQ</strong> (PF01817, 12,678 seqs): All ICs have η² > 0.02 (bacterial family). Connectivity separates 4 sectors from 2 co-sectors. Proves η² cannot be a classifier. <strong>SH3</strong> (PF00018, 168,846 seqs): No IC separates by phylogeny (all η² < 0.003). Recovers 78% of hand-analyzed sector positions. IC4 = RT loop, IC6 = hydrophobic core. <strong>PF00296</strong> (AMP-binding, 62,992 seqs): All 6 ICs pass signal quality. IC2 separates luciferases from acyl-CoA synthetases. ATS mapping failed (first MSA sequence misaligns to reference PDB) — requires ggsearch36-based reference selection in Pass 2.</p>
+</section>
+
+<!-- ===== SECTION 6: TWO-PASS ARCHITECTURE ===== -->
+<section class="scene" id="s6">
+  <h2 class="stagger">Section 6 · Two-pass Pfam-wide production</h2>
+  <h3 class="stagger">IC decomposition first, then structure-informed enrichment</h3>
+  <div class="comparison stagger">
+    <div class="comparison-box pass1">
+      <h4>Pass 1 — from the MSA</h4>
+      <p>IC positions, loadings, per-protein amino acid identity, phylogenetic η². Alignment column numbering. No structure needed. Enough for the ℒ<sub>sector</sub> loss and the basic IC text annotation. Unblocks Run 2.</p>
+    </div>
+    <div class="comparison-box pass2">
+      <h4>Pass 2 — from the structure</h4>
+      <p>ATS mapping (ggsearch36 + SIFTS). Physical connectivity → sector/co-sector labels. Active site correspondence. PDB residue numbering. Functional annotation per IC. Enriches the text annotation progressively.</p>
+    </div>
+  </div>
+  <p class="stagger">PDB numbering matters for a specific reason: the scientific literature describes protein positions using PDB residue numbers. "His57, Asp102, Ser195" is how every biochemist identifies the serine protease catalytic triad. If we upgrade the text encoder to a model trained on scientific textbooks and papers — SciLitLLM-7B, trained on 73K textbooks and 625K research papers — that model will understand PDB numbering. The annotation should speak the same language as the literature.</p>
+  <p class="stagger">The Pfam-A database is already downloaded on Spark, and ggsearch36 is available as an SCA dependency. Pass 1 is an overnight batch job on a single GPU (~1–2 hours for ~20K families). Pass 2 runs in parallel, enriching annotations as ATS mappings complete.</p>
+</section>
+
+<!-- ===== SECTION 7: TEXT ANNOTATION ===== -->
+<section class="scene" id="s7">
+  <h2 class="stagger">Section 7 · The SECTOR text annotation</h2>
+  <h3 class="stagger">Per-protein IC motifs as a new modality in PenCL</h3>
+  <p class="stagger">Each protein gains a SECTOR field listing its amino acids at each IC's positions — what <em>this specific protein</em> carries at the coevolutionary positions of its family.</p>
+  <div class="prompt-box stagger" data-label="PASS 1 — ALIGNMENT COLUMNS">SECTOR: PF00089 has 4 robust ICs. IC2 (17 pos, loading 0.92-0.62): H42 D89 S156 G155 S172 G174. IC5 (17 pos, loading 0.91-0.69): D152 S153 G184 V185. IC3 (8 pos): V27 L104 V102. IC1 (co-sector, 14 pos): G108 V131 A145.</div>
+  <div class="prompt-box stagger" data-label="PASS 2 — PDB NUMBERING">SECTOR: PF00089 has 4 sectors and 2 co-sectors (ref: 3TGI). IC2 (sector, catalytic): H57 D102 S195 G193. IC5 (sector, specificity): D189 S190 G226. IC3 (sector, Metazoa-enriched η²=0.067): V29 L122. IC1 (co-sector, Metazoa-enriched): G20 L33 V52.</div>
+  <p class="stagger">The amino acids are protein-specific. Two trypsins share IC2 and IC5 residues; a chymotrypsin differs at IC5 (specificity positions). PenCL's contrastive loss sees these similar or different text strings and embeds them accordingly. Positions are listed in loading order (highest first). The SECTOR field is subject to the same per-batch stochastic dropout as other fields (retention probability ~0.65).</p>
+  <p class="stagger">The annotation carries the full interpretive picture when available: which positions coevolve as a unit, whether each unit is a connected core or a fragmented shell, which ICs touch known functional sites, and where this protein sits in the phylogenetic landscape of each IC.</p>
+</section>
+
+<!-- ===== SECTION 8: LOSS FUNCTION ===== -->
+<section class="scene" id="s8">
+  <h2 class="stagger">Section 8 · The sector loss term</h2>
+  <h3 class="stagger">Shaping embedding geometry with IC loadings</h3>
+  <p class="stagger">The text annotation teaches the encoder to <em>read</em> IC information. The loss term teaches PenCL to <em>use</em> it — to organize the embedding space so that proteins with similar IC motifs are close together.</p>
+  <div class="eq stagger">ℒ<sub>sector</sub> = Σ<sub>i,j</sub> | d(z<sub>c</sub><sup>i</sup>, z<sub>c</sub><sup>j</sup>) − (1 − S<sub>w</sub>(i,j)) |²</div>
+  <p class="stagger">S<sub>w</sub>(i, j) is the position-weighted IC identity between proteins i and j: the fraction of IC positions where both proteins share the same amino acid, weighted by IC loadings. The sum runs over all robust ICs — the loss does not distinguish sectors from co-sectors. A position with loading 0.92 contributes more than one with loading 0.45. The IC data for S<sub>w</sub> is precomputed from the Pass 1 results and stored as compressed numpy arrays per family.</p>
+  <div class="warning stagger">
+    <p><strong>λ balancing.</strong> ℒ<sub>total</sub> = ℒ<sub>GC</sub> + ℒ<sub>PFC</sub> + ℒ<sub>bML</sub> + ℒ<sub>pML</sub> + λ · ℒ<sub>sector</sub>. Start with λ = 0.1. Sweep to maximize within-family IC-based separation without degrading inter-family separation.</p>
+  </div>
+</section>
+
+<!-- ===== SECTION 9: WHAT PENCL LEARNS ===== -->
+<section class="scene" id="s9">
+  <h2 class="stagger">Section 9 · What changes in the embedding space</h2>
+  <h3 class="stagger">From keyword lookup to architectural understanding</h3>
+  <div class="comparison stagger">
+    <div class="comparison-box without">
+      <h4>Without ICs</h4>
+      <p>z<sub>c</sub> encodes: protein name, family, organism, annotated function. Paralog differences captured only if the text annotation explicitly mentions them. "Trypsin" and "chymotrypsin" are similar because they share keywords.</p>
+    </div>
+    <div class="comparison-box with">
+      <h4>With ICs</h4>
+      <p>z<sub>c</sub> encodes: which coevolutionary units are present, what amino acids occupy them, which are connected cores vs tunable shells. Paralog differences captured at the residue level through IC motif identity.</p>
+    </div>
+  </div>
+  <p class="stagger">The embedding space develops internal structure that mirrors the biological architecture: a dimension for catalytic identity (IC2 residues), a dimension for substrate specificity (IC5 residues), a dimension for lineage-specific tuning (IC3/IC4 residues). These are the dimensions ProteoScribe needs for conditional generation — "design a trypsin-like protease" means "preserve IC2 residues, use the trypsin variant of IC5."</p>
+  <p class="stagger">The experimental design: train PenCL with IC annotations (Run 2) and without (Run 1) on the same 49.8 million pair corpus. Compare embedding geometry (do Run 2 embeddings separate orthologs by IC conservation?), then fine-tune ProteoScribe with both versions and measure prompt generalization. The success criterion: P1–P-Novel gap below 15% at convergence, with sector conservation above 60% across all prompt formats.</p>
+</section>
+
+<!-- ===== SECTION 10: STATUS ===== -->
+<section class="scene" id="s10">
+  <h2 class="stagger">Section 10 · Status and path forward</h2>
+  <h3 class="stagger">Three parallel workstreams converging on a controlled experiment</h3>
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Work item</th><th>Status</th><th>Output</th></tr>
+      <tr><td><strong>Workstream 1:</strong> PenCL Run 1 (no sectors)</td><td class="neutral">Debug on Aurora</td><td>49.8M corpus staged on /flare, XPU port applied, debug job submitted</td></tr>
+      <tr><td><strong>2a:</strong> pySCA framework</td><td class="good">Complete</td><td>GPU-accelerated SCA + classify + annotate on Spark</td></tr>
+      <tr><td><strong>2b:</strong> Validation (4 families)</td><td class="good">Complete</td><td>S1A, CM, SH3, PF00296 — IC hierarchy confirmed</td></tr>
+      <tr><td><strong>2c:</strong> Pass 1 batch runner</td><td class="neutral">Building</td><td>SCA over ~20K families (est. 1–2 h, Spark GPU)</td></tr>
+      <tr><td><strong>2d:</strong> Pass 2 ATS mapping</td><td class="neutral">In parallel</td><td>ggsearch36 + SIFTS for PDB numbering, connectivity</td></tr>
+      <tr><td><strong>2e:</strong> Annotation + ℒ<sub>sector</sub></td><td>Pending 2c</td><td>Per-protein SECTOR field + IC matrix files</td></tr>
+      <tr><td><strong>2f:</strong> PenCL Run 2 (with sectors)</td><td>Pending 2e</td><td>Same corpus + SECTOR + ℒ<sub>sector</sub></td></tr>
+      <tr><td><strong>Workstream 3:</strong> Text encoder eval</td><td>Designed</td><td>SciLitLLM-7B vs PubMedBERT — 4 empirical tests</td></tr>
+      <tr><td><strong>Run 1 vs Run 2</strong></td><td>Pending</td><td>Embedding geometry + ProteoScribe validation</td></tr>
+    </table>
+  </div>
+  <p class="stagger">Workstream 1 trains on Aurora (4 nodes, 24 GPU tiles, bf16-mixed, per-batch stochastic dropout) while workstream 2 completes on the DGX Spark (Pfam-A database already downloaded, ggsearch36 available). Workstream 3 (SciLitLLM-7B evaluation) runs on Spark in sequence with SCA. When Run 1 and the IC annotations are both ready, Run 2 launches — identical corpus plus the SECTOR text field and the ℒ<sub>sector</sub> loss.</p>
+  <div class="callout stagger">
+    <p><strong>The convergence point.</strong> Run 1 answers: does text diversity fix format memorization? Run 2 answers: does IC-level architecture add functional structure to the embedding space? Together they determine whether BioM3 can generate proteins from natural language prompts of arbitrary format, with designs that respect the coevolutionary architecture of the target family.</p>
+  </div>
+  <p class="stagger chapter-nav">Part of the generalization-preserving fine-tuning series · Ranganathan Lab · April 2026</p>
+</section>
+
+<script>
+const scenes=document.querySelectorAll('.scene');const dotNav=document.getElementById('dotNav');
+scenes.forEach((s,i)=>{const a=document.createElement('a');a.href='#'+s.id;dotNav.appendChild(a)});
+const dots=dotNav.querySelectorAll('a');
+function onScroll(){const st=window.scrollY;const dh=document.documentElement.scrollHeight-window.innerHeight;
+document.getElementById('progressBar').style.width=(st/dh*100)+'%';
+document.querySelectorAll('.stagger:not(.visible)').forEach(el=>{if(el.getBoundingClientRect().top<window.innerHeight*0.85)el.classList.add('visible')});
+let c=0;scenes.forEach((s,i)=>{if(st>=s.offsetTop-window.innerHeight/2)c=i});
+dots.forEach((d,i)=>d.classList.toggle('active',i===c))}
+window.addEventListener('scroll',onScroll);onScroll();
+scenes.forEach(scene=>{scene.querySelectorAll('.stagger').forEach((el,i)=>{el.style.transitionDelay=(i*0.08)+'s'})});
+</script>
+</body>
+</html>
