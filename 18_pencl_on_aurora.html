@@ -598,36 +598,111 @@ mpiexec -n 12 -ppn 12 \
   <p class="stagger">For multi-node, the script changes minimally: <code>#PBS -l select=4</code>, <code>MASTER_ADDR=$(head -1 $PBS_NODEFILE)</code>, and <code>mpiexec -n 48 -ppn 12</code>. The Python code is identical.</p>
 </section>
 
-<!-- ===== SECTION 8: TRAINING MATH ===== -->
+<!-- ===== SECTION 8: THE FP32 WALL ===== -->
 <section class="scene" id="s8">
-  <h2 class="stagger">Section 8 · Training math</h2>
-  <h3 class="stagger">How many tiles, how many hours, how many epochs</h3>
+  <h2 class="stagger">Section 8 · The fp32 wall</h2>
+  <h3 class="stagger">Why training is 300× slower than expected, and why bf16 is mandatory</h3>
+
+  <p class="stagger">With 12-tile and 48-tile distributed training confirmed, we measured the per-step time: approximately 640 seconds. At 48 tiles with 6,577 steps per epoch, this gives 1,167 hours per epoch — completely infeasible. Our original estimate of ~2 seconds per step was wrong by a factor of 300. The training dynamics are healthy (losses decreasing, components behaving correctly), but the compute throughput makes fp32 training on XPU impossible at any scale.</p>
 
   <div class="table-wrap stagger">
     <table>
-      <tr><th>Parameter</th><th>1 tile</th><th>12 tiles</th><th>48 tiles</th></tr>
-      <tr><td>DDP ranks</td><td class="num">1</td><td class="num">12</td><td class="num">48</td></tr>
-      <tr><td>Batch per rank</td><td class="num">8</td><td class="num">8</td><td class="num">8</td></tr>
-      <tr><td>Gradient accumulation</td><td class="num">1</td><td class="num">2</td><td class="num">2</td></tr>
-      <tr><td>Global effective batch</td><td class="num">8</td><td class="num">192</td><td class="num">768</td></tr>
-      <tr><td>Steps per epoch</td><td class="num">631,407</td><td class="num">26,309</td><td class="num">6,577</td></tr>
-      <tr><td>Est. time per step (post-JIT)</td><td class="num">~2 s</td><td class="num">~2 s</td><td class="num">~2 s</td></tr>
-      <tr><td>Est. hours per epoch</td><td class="num">~351 h</td><td class="num">~15 h</td><td class="num">~3.7 h</td></tr>
-      <tr><td>10 epochs</td><td class="num bad">~146 days</td><td class="num neutral">~6.2 days</td><td class="num good">~36 hours</td></tr>
+      <tr><th>Configuration</th><th>Steps</th><th>Per-step time</th><th>Loss trajectory</th></tr>
+      <tr><td>12-tile (1 node), fp32</td><td class="num">8</td><td class="num">639 sec</td><td>14.3 → 12.6 → 14.1 (healthy)</td></tr>
+      <tr><td>48-tile (4 nodes), fp32</td><td class="num">4</td><td class="num">638 sec</td><td>13.8 → 24.7 → 22.4 → 18.3 (spike resolving)</td></tr>
+      <tr><td>12-tile, fp32, num_workers=2</td><td class="num">2</td><td class="num">597 sec</td><td>No change from baseline</td></tr>
     </table>
   </div>
 
-  <p class="stagger">The 2 seconds per step estimate is based on A100 throughput scaled to 80% for XPU after JIT warmup. The actual per-step time at 48 tiles depends on gradient synchronization overhead — the AllReduce for 107M trainable parameters across 48 ranks via Slingshot-11. At 89% scaling efficiency (the XCCL benchmark on Aurora), the effective time is ~2.2 seconds per step, giving ~4.0 hours per epoch.</p>
+  <p class="stagger">The <code>num_workers=2</code> test was diagnostic: if data loading were the bottleneck, prefetching batches while the GPU computes would cut the per-step time dramatically. It didn't. The 640-second cost is almost entirely the forward and backward pass — ESM2's 33 transformer layers and PubMedBERT's 12 layers running in fp32 on Intel XPU hardware.</p>
+
+  <h4 class="stagger">Why the estimate was wrong: TF32 on CUDA is invisible</h4>
+
+  <p class="stagger">Our estimate was based on A100 throughput scaled to 80% for XPU. The error was in the A100 baseline. Since PyTorch 1.7, NVIDIA GPUs silently use TensorFloat-32 (TF32) for matrix multiplications — a format that engages the A100's tensor cores at 156 TFLOPS versus 19.5 TFLOPS for true IEEE fp32. That is an 8× throughput difference, enabled by default, invisible to the user. When we said "the original PenCL trained in fp32 on A100," it was actually running in TF32 on tensor cores. The API shows <code>precision='32'</code>, but the hardware runs the matmuls in a 19-bit format at 8× the fp32 rate.</p>
+
+  <p class="stagger">On Intel XPU, <code>precision='32'</code> is actual IEEE fp32. There is no silent TF32 equivalent. The XMX (Xe Matrix Extensions) engines on Ponte Vecchio are designed for bf16 and fp16 — that is where the high throughput lives. Running true fp32 forces the Xe-cores to use their scalar/vector units, not the matrix engines. It is the equivalent of running an A100 with <code>torch.backends.cuda.matmul.allow_tf32 = False</code> — the same 8× slowdown that nobody on NVIDIA hardware ever sees because the default is True.</p>
+
+  <p class="stagger">An 8× slowdown explains going from ~2 seconds (the A100-based estimate) to ~16 seconds. But we measured 640 seconds — 40× slower than even the 8× penalty. Two additional factors compound the problem.</p>
+
+  <h4 class="stagger">JIT compilation overhead</h4>
+
+  <p class="stagger">Intel's oneAPI compiler generates optimized XPU microcode at runtime for every unique tensor shape it encounters. ESM2 processes variable-length protein sequences — each unique sequence length through 33 transformer layers produces different tensor shapes for the attention matrices, the feedforward layers, and the layer norm operations. With batch size 8 and sequences ranging from 50 to 1000+ residues, the first dozens of training steps trigger new JIT compilations. On CUDA, cuDNN has pre-compiled kernels covering all common transformer shapes; on XPU, everything is compiled on first encounter. After warmup, subsequent steps with the same shapes reuse the compiled kernels — but the warmup period may be longer than a short debug job.</p>
+
+  <h4 class="stagger">IPEX kernel coverage</h4>
+
+  <p class="stagger">ESM2 uses rotary positional embeddings, architecture-specific attention patterns, and custom masking operations that have highly optimized cuDNN/cuBLAS implementations on CUDA. On XPU, some of these operations may fall back to generic implementations through the Intel Extension for PyTorch (IPEX) rather than using the optimized XMX paths. Each fallback operation runs at scalar speed instead of matrix-engine speed, and the cost accumulates across 33 layers per forward pass and again in the backward pass.</p>
+
+  <h4 class="stagger">The path to bf16</h4>
+
+  <p class="stagger">bf16 (bfloat16, "brain floating point") is a 16-bit number format designed by Google Brain specifically for deep learning. Understanding why it works requires comparing three formats:</p>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Format</th><th>Bits</th><th>Exponent</th><th>Mantissa</th><th>Range</th><th>Precision</th></tr>
+      <tr><td>fp32</td><td class="num">32</td><td class="num">8 bits</td><td class="num">23 bits</td><td>±3.4 × 10³⁸</td><td>~7 decimal digits</td></tr>
+      <tr><td>fp16</td><td class="num">16</td><td class="num">5 bits</td><td class="num">10 bits</td><td>±6.5 × 10⁴</td><td>~3 decimal digits</td></tr>
+      <tr><td>bf16</td><td class="num">16</td><td class="num">8 bits</td><td class="num">7 bits</td><td>±3.4 × 10³⁸</td><td>~2 decimal digits</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">fp16 sacrifices range — it cannot represent numbers larger than 65,504 or smaller than ~6 × 10⁻⁸. Loss values, gradient sums, and attention logits routinely exceed these bounds, causing overflow to infinity and NaN propagation. Pure fp16 training requires loss scaling and careful gradient clipping to avoid these overflows.</p>
+
+  <p class="stagger">bf16 makes the opposite trade: it keeps the full fp32 exponent (same 8 exponent bits, same range from 10⁻³⁸ to 10³⁸) but cuts the mantissa to 7 bits (~2 decimal digits of precision). The value 3.14159 becomes approximately 3.125 in bf16. You lose the trailing digits, but you never overflow. This is the right trade-off for neural network training, where the gradient signal is a stochastic estimate computed on a random mini-batch — the noise in the gradient is far larger than the rounding error from bf16.</p>
+
+  <p class="stagger">The one place where precision matters is accumulation — summing many small values for gradient reduction, batch normalization, and loss computation. This is why "bf16-mixed" precision keeps the master weights and the loss computation in fp32 while running the forward and backward matmuls in bf16. The matmuls are where the compute time is; the accumulations are cheap in fp32.</p>
+
+  <div class="key-finding stagger">
+    <p><strong>bf16 training produces models indistinguishable from fp32</strong> for essentially all transformer architectures tested. Google trained every model from BERT through PaLM in bf16. NVIDIA's TF32 (which the A100 was silently using for "fp32" training) has a 10-bit mantissa — marginally more precise than bf16's 7 bits, but both are far below fp32's 23 bits, and neither produces measurable differences in model quality. The original PenCL was never trained in true fp32 — it was trained in TF32, which is closer to bf16 than to fp32.</p>
+  </div>
+
+  <h4 class="stagger">The infinity masking fix for bf16</h4>
+
+  <p class="stagger">PenCL's contrastive loss masks the diagonal of the similarity matrix with negative infinity (<code>float('-inf')</code>). bf16 can represent infinity (it has the full 8-bit exponent), but the interaction between <code>torch.autocast</code> and in-place operations on the diagonal can produce unexpected behavior. The fix is the same as Fix 8: cast to fp32 before the infinity operation, then let autocast handle the subsequent softmax in bf16.</p>
+
+  <div class="prompt-box stagger" data-label="BF16 INFINITY FIX IN MODEL.PY">
+# Before:
+logits.fill_diagonal_(float('-inf'))
+
+# After:
+logits = logits.float()  # exit autocast for inf masking
+logits.fill_diagonal_(float('-inf'))
+# autocast resumes for subsequent operations</div>
+
+  <p class="stagger">With this fix, bf16-mixed precision engages the XMX matrix engines on every matmul in ESM2 and PubMedBERT, halves the memory bandwidth for every tensor movement, and enables IPEX's optimized bf16 kernel paths. The expected speedup is 4–8× over fp32, bringing the per-step time from 640 seconds to approximately 80–160 seconds — the range where production training becomes feasible.</p>
+</section>
+
+<!-- ===== SECTION 9: TRAINING MATH ===== -->
+<section class="scene" id="s9">
+  <h2 class="stagger">Section 9 · Training math</h2>
+  <h3 class="stagger">Revised estimates with measured per-step times</h3>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>Parameter</th><th>48 tiles, fp32 (measured)</th><th>48 tiles, bf16 (projected)</th></tr>
+      <tr><td>DDP ranks</td><td class="num">48</td><td class="num">48</td></tr>
+      <tr><td>Batch per rank</td><td class="num">8</td><td class="num">8</td></tr>
+      <tr><td>Gradient accumulation</td><td class="num">2</td><td class="num">2</td></tr>
+      <tr><td>Global effective batch</td><td class="num">768</td><td class="num">768</td></tr>
+      <tr><td>Steps per epoch</td><td class="num">6,577</td><td class="num">6,577</td></tr>
+      <tr><td>Time per step</td><td class="num bad">~640 sec</td><td class="num good">~80–160 sec (projected)</td></tr>
+      <tr><td>Hours per epoch</td><td class="num bad">~1,169 h</td><td class="num good">~146–292 h</td></tr>
+      <tr><td>10 epochs</td><td class="num bad">~11,690 h</td><td class="num good">~1,461–2,923 h</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">Even with bf16, 10 epochs at 48 tiles may require multiple job submissions (Aurora's maximum walltime is 168 hours). The strategy is checkpoint-and-resume: save every epoch, resubmit from <code>last.ckpt</code> if the job hits the walltime limit. At 150 sec/step (the mid-range bf16 estimate), one epoch takes ~274 hours — two job submissions per epoch. At 80 sec/step (optimistic bf16), one epoch takes ~146 hours — fits in a single submission.</p>
+
+  <p class="stagger">The actual bf16 per-step time will be measured in a debug job before the production submission. That number determines the production plan: how many job submissions for 10 epochs, and whether to reduce to 5 epochs for the initial Run 1.</p>
 
   <div class="callout stagger">
     <p><strong>Why 10 epochs?</strong> We do not know a priori how many epochs are needed. The original PenCL used 5 epochs for the design application and 20 for benchmarking. Our corpus is 9× larger per protein (9 text variants) but also 9× more diverse. We start with 10, checkpoint every epoch, and evaluate embedding geometry at epochs 2, 5, and 10. If format invariance plateaus before epoch 10, we stop early. If it hasn't converged by epoch 10, we extend.</p>
   </div>
 </section>
 
-<!-- ===== SECTION 9: STATUS ===== -->
-<section class="scene" id="s9">
-  <h2 class="stagger">Section 9 · Status</h2>
-  <h3 class="stagger">12-tile distributed training confirmed; multi-node next</h3>
+<!-- ===== SECTION 10: STATUS ===== -->
+<section class="scene" id="s10">
+  <h2 class="stagger">Section 10 · Status</h2>
+  <h3 class="stagger">48-tile training confirmed; bf16 precision test next</h3>
 
   <div class="timeline stagger">
     <div class="timeline-item done">
@@ -635,31 +710,27 @@ mpiexec -n 12 -ppn 12 \
       <div class="timeline-desc">Confirmed. 3 training steps, all 4 losses correct, fp32. 12 code fixes (6 inference + 5 training + 1 AF_UNIX path). Job 8434430.</div>
     </div>
     <div class="timeline-item done">
-      <div class="timeline-label">Phase 1a — XCCL 2-rank AllReduce</div>
-      <div class="timeline-desc">Confirmed. Correct sum across 2 tiles. XCCL backend + ZE_AFFINITY_MASK + PALS environment variables all working.</div>
+      <div class="timeline-label">Phase 1 — 12 tiles, 1 node</div>
+      <div class="timeline-desc">Confirmed. XCCL 2-rank AllReduce, 12-rank process group, rank-aware data splitting, 8 training steps. Loss: 14.3 → 14.1. Per-step: ~640 sec (fp32). Job 8435158.</div>
     </div>
     <div class="timeline-item done">
-      <div class="timeline-label">Phase 1b — 12-rank distributed init</div>
-      <div class="timeline-desc">Confirmed. All 12 ranks form the XCCL process group. PL detects DDP. Gloo peer connections established for CPU collectives. OOM at 12 × 55 GB Pfam → triggered data splitting fix.</div>
-    </div>
-    <div class="timeline-item done">
-      <div class="timeline-label">Phase 1c — 12-rank distributed training</div>
-      <div class="timeline-desc">Confirmed. Rank-aware prepare_data() splits Pfam into 12 shards (~3.7 GB each, 881 GB free). All 4 losses computing, optimizer stepping. Job 8435158. Loss at step 0: total=14.285, ℒ_align=5.719, ℒ_intra=4.031, ℒ_text=3.093, ℒ_seq=1.443.</div>
+      <div class="timeline-label">Phase 2 — 48 tiles, 4 nodes</div>
+      <div class="timeline-desc">Confirmed. XCCL across Slingshot, 48-rank data splitting, all_gather across 4 nodes. Loss spike at step 1 (24.7) resolving to 18.3 by step 3. Per-step: ~638 sec (fp32). Bottleneck identified: true IEEE fp32 bypasses XMX matrix engines.</div>
     </div>
     <div class="timeline-item active">
-      <div class="timeline-label">Phase 2 — Multi-node, 4 × 12 = 48 tiles</div>
-      <div class="timeline-desc">Same mpiexec + XCCL pattern across 4 nodes. MASTER_ADDR from $PBS_NODEFILE. Data splitting scales directly to 48 shards. Code is identical; PBS script changes select=4 and -n 48.</div>
+      <div class="timeline-label">Phase 2b — bf16 precision test</div>
+      <div class="timeline-desc">Required. fp32 on XPU gives ~640 sec/step — infeasible for production. bf16-mixed engages XMX engines for 4–8× projected speedup. Requires infinity masking fix in model.py. Debug job to measure actual bf16 per-step time.</div>
     </div>
     <div class="timeline-item pending">
       <div class="timeline-label">Phase 3 — Production Run 1</div>
-      <div class="timeline-desc">4 nodes, 36-hour walltime, 10 epochs. Checkpoint every epoch. Resume from last.ckpt if interrupted. Embedding geometry evaluation at epochs 2, 5, 10.</div>
+      <div class="timeline-desc">4 nodes, bf16-mixed, checkpoint every epoch. Walltime and number of job submissions depend on bf16 per-step time. May require checkpoint-and-resume across multiple submissions.</div>
     </div>
   </div>
 
-  <p class="stagger">The full distributed training pipeline is confirmed working on Aurora: XCCL process group formation, GPU tile affinity masking, rank-aware data splitting, DDP gradient synchronization, and optimizer stepping across 12 Intel XPU tiles. Loss values from 12-tile training (total=14.285) are consistent with single-tile (total=14.24), confirming that gradient synchronization via AllReduce is correct. The remaining step is multi-node scaling — extending from 12 tiles on 1 node to 48 tiles on 4 nodes for production throughput.</p>
+  <p class="stagger">The distributed training infrastructure is fully validated — XCCL process groups, GPU affinity, data splitting, gradient synchronization across 4 nodes via Slingshot. The loss trajectories are healthy: individual components (intra-modal, masked-language) decrease correctly, and the 48-tile batch-size spike is resolving as expected. The remaining blocker is computational throughput: fp32 on Intel XPU runs at ~640 sec/step because it bypasses the XMX matrix engines, making production training infeasible. bf16-mixed precision is required to engage the hardware's designed throughput path.</p>
 
   <div class="info stagger">
-    <p><strong>Parallel workstream.</strong> While Aurora scales to multi-tile production, the Pfam-wide SCA is complete on Spark: 20,011 protein families decomposed into independent components, 93 million per-protein annotations generated (36 GB), and 19,578 IC matrix files prepared for the sector loss. When Aurora reaches production and the sector merge completes, Run 2 launches — the same corpus plus sector annotations and the ℒ<sub>sector</sub> loss term.</p>
+    <p><strong>Parallel workstream.</strong> While Aurora moves from fp32 to bf16 for production throughput, the Pfam-wide SCA is completing its definitive Pass 2 on Spark: PDB-linked sequence retention, domain boundary extension (83% of families need it), alignment-based ATS mapping, and contact probability matrices averaged over multiple experimental structures. When Aurora reaches production and the sector annotations are ready, Run 2 launches — the same corpus plus the SECTOR text field and the ℒ<sub>sector</sub> loss term.</p>
   </div>
 
   <p class="stagger chapter-nav">Addison Howe, Tarak Nandi, and Rama Ranganathan · Ranganathan Lab · April 2026</p>
