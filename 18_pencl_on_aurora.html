@@ -96,7 +96,7 @@ code{font-family:var(--mono);font-size:14px;background:var(--code-bg);padding:2p
   <p class="stagger">This note documents the complete port of PenCL — a contrastive learning model that jointly embeds protein sequences and text descriptions — from NVIDIA CUDA to Intel XPU on the ALCF Aurora supercomputer. PenCL retraining requires 49.8 million text-protein pairs to pass through ESM2 (650M parameters) and PubMedBERT (100M parameters) for 10 epochs, with contrastive and masked-language losses computed on every batch. Aurora provides the scale: 10,624 nodes of Intel Ponte Vecchio GPUs. But CUDA code does not run on XPU. This note catalogs every failure we encountered and the fix for each — at the level of detail needed for someone facing the same problems to solve them.</p>
   <div class="meta stagger">
     <span>Ranganathan Lab · Center for Physics of Evolving Systems · University of Chicago</span>
-    <span>BioM3 ProteoScribe · Aurora Deployment · April 2026</span>
+    <span>Addison Howe and Tarak Nandi · BioM3 ProteoScribe · Aurora Deployment · April 2026</span>
   </div>
 </section>
 
@@ -126,6 +126,8 @@ code{font-family:var(--mono);font-size:14px;background:var(--code-bg);padding:2p
   <p class="stagger">Every layer of the stack changed. The GPU architecture changed from NVIDIA Ampere to Intel Ponte Vecchio. The distributed communication changed from NCCL to XCCL. The Lightning version jumped from 1.9 to 2.6, which itself introduced API changes that break old code. The Python version changed from 3.11 to 3.12. And the job launcher changed from direct <code>python3</code> invocation to <code>mpiexec</code> through PALS, which sets different environment variables and has different rank-assignment semantics than NCCL's launcher.</p>
 
   <p class="stagger">These are not independent changes. They interact. The bf16 behavior on XPU interacts with the contrastive loss computation. The mpiexec launcher interacts with PL's DDP strategy detection. The PALS environment variables have different names than what <code>torch.distributed</code> expects by default. Porting is not a search-and-replace of <code>'cuda'</code> with <code>'xpu'</code> — it is a systematic audit of every point where the code assumes NVIDIA hardware, NVIDIA communication, or NVIDIA-era PyTorch behavior.</p>
+
+  <p class="stagger">Two foundational contributions made this port possible. Addison Howe built a custom fork of PyTorch Lightning 2.6 with a full <code>XPUAccelerator</code> class — registering <code>'xpu'</code> as a first-class accelerator, implementing XPU device detection via IPEX, and providing the <code>biom3-env</code> virtual environment on Aurora with all BioM3 dependencies at compatible versions. Without this, Lightning falls back to CPU and no GPU training is possible. Tarak Nandi developed the multi-node distributed training infrastructure — <code>mpiexec</code> launch scripts, PBS job templates for Aurora's capacity and production queues, GPU tile affinity via <code>ZE_AFFINITY_MASK</code>, and configuration systems for managing hyperparameters across pretraining and fine-tuning runs. Their combined work provided the platform on which the PenCL-specific fixes described in this note were built.</p>
 
   <h4 class="stagger">Why Aurora over Polaris</h4>
 
@@ -171,7 +173,7 @@ def print_gpu_initialization():
 
   <h4 class="stagger"><span class="fix-num">FIX 2</span> Hardcoded accelerator — PL cannot find 'cuda'</h4>
 
-  <p class="stagger">PyTorch Lightning's <code>Trainer</code> was initialized with <code>accelerator='cuda'</code> in two files (Stage 1 and Stage 2 inference scripts). On XPU, this crashes because PL looks for CUDA devices and finds none. The ALCF's custom Lightning build adds an <code>XPUAccelerator</code> class that registers itself under <code>accelerator='auto'</code>. Changing the hardcoded string to <code>'auto'</code> lets PL's device-detection logic find XPU.</p>
+  <p class="stagger">PyTorch Lightning's <code>Trainer</code> was initialized with <code>accelerator='cuda'</code> in two files (Stage 1 and Stage 2 inference scripts). On XPU, this crashes because PL looks for CUDA devices and finds none. Addison Howe's custom Lightning build adds an <code>XPUAccelerator</code> class that registers itself under <code>accelerator='auto'</code>. Changing the hardcoded string to <code>'auto'</code> lets PL's device-detection logic find XPU.</p>
 
   <div class="key-finding stagger">
     <p><strong>Pattern: never hardcode the accelerator string.</strong> Code that specifies <code>'cuda'</code> explicitly is code that cannot run on any other hardware. <code>'auto'</code> defers to PL's registry, which on Aurora finds XPU, on Polaris finds CUDA, and on CPU-only machines finds CPU. The same code runs everywhere.</p>
@@ -348,7 +350,7 @@ trainer = pl.Trainer(
 
   <p class="stagger">PL's built-in DDP strategy launches worker processes internally and manages rank assignment, device mapping, and environment variables. This works on NVIDIA because PL knows how to detect CUDA devices and assign them to ranks. On Aurora's custom Lightning build, the XPU accelerator is supported but the DDP launcher is not fully integrated with PALS (Aurora's job launcher) or the tile-level affinity masking needed for Ponte Vecchio's two-tile architecture.</p>
 
-  <p class="stagger">The solution: bypass PL's process launcher entirely and use <code>mpiexec</code> directly. The PBS job script launches 12 MPI ranks per node (one per tile). Each rank is an independent Python process that manually initializes <code>torch.distributed</code> with the XCCL backend before PL sees anything. PL then detects the already-initialized process group and wraps the model in DDP transparently — it doesn't need to know how the processes were launched.</p>
+  <p class="stagger">The solution: bypass PL's process launcher entirely and use <code>mpiexec</code> directly. This approach follows the multi-node launch infrastructure developed by Addison Howe and Tarak Nandi for BioM3 Stage 3 pretraining on Aurora — their <code>pretrain_multinode.sh</code> scripts, PBS job templates, and GPU affinity patterns established the <code>mpiexec</code>-based workflow that we adapted for PenCL. The PBS job script launches 12 MPI ranks per node (one per tile). Each rank is an independent Python process that manually initializes <code>torch.distributed</code> with the XCCL backend before PL sees anything. PL then detects the already-initialized process group and wraps the model in DDP transparently — it doesn't need to know how the processes were launched.</p>
 
   <h4 class="stagger">GPU tile affinity: ZE_AFFINITY_MASK</h4>
 
@@ -660,7 +662,7 @@ mpiexec -n 12 -ppn 12 \
     <p><strong>Parallel workstream.</strong> While Aurora scales to multi-tile production, the Pfam-wide SCA is complete on Spark: 20,011 protein families decomposed into independent components, 93 million per-protein annotations generated (36 GB), and 19,578 IC matrix files prepared for the sector loss. When Aurora reaches production and the sector merge completes, Run 2 launches — the same corpus plus sector annotations and the ℒ<sub>sector</sub> loss term.</p>
   </div>
 
-  <p class="stagger chapter-nav">Part of the generalization-preserving fine-tuning series · Ranganathan Lab · April 2026</p>
+  <p class="stagger chapter-nav">Addison Howe, Tarak Nandi, and Rama Ranganathan · Ranganathan Lab · April 2026</p>
 </section>
 
 <script>
