@@ -120,10 +120,12 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--code-bg);padding:
   <div class="defn stagger">
     <h4>Classification algorithm</h4>
     <p><strong>Step 0 — Signal quality.</strong> Compute self/background ratio: mean |C̃| within IC / mean |C̃| over non-IC positions. If self/bg &lt; 3×, the IC is noise — discard.</p>
-    <p><strong>Step 1 — Connectivity.</strong> Map IC positions onto the structure (reference PDB or AlphaFold model). Positions in contact if Cα–Cα &lt; 8 Å. If &gt;50% of the IC's positions fall in one connected component → <strong>sector</strong>. Otherwise → Step 2.</p>
-    <p><strong>Step 2 — Sector contact.</strong> If &gt;80% of the fragmented IC's positions contact a sector position → <strong>co-sector</strong>. Otherwise → <strong>orphan</strong>.</p>
+    <p><strong>Step 1 — Contact map.</strong> For families with multiple experimental PDB structures: download diverse representatives (up to 15–20, clustered by sequence identity from SIFTS), compute Cα contact maps in each (8 Å cutoff), and average in MSA column space to produce P<sub>contact</sub>(i,j) ∈ [0,1]. Positions are "in contact" if P<sub>contact</sub> > 0.5 — meaning they are within 8 Å in more than half the representative structures. For families with one PDB: binary contacts from that structure. For families with no experimental PDB: AlphaFold2 predicted structure (single sequence, pLDDT > 70), trimmed to domain boundaries. Families below the pLDDT threshold get ICs but no structural classification.</p>
+    <p><strong>Step 2 — Connectivity.</strong> Map IC positions onto the contact map. If >50% of the IC's positions fall in one connected component → <strong>sector</strong>. Otherwise → Step 3.</p>
+    <p><strong>Step 3 — Sector contact.</strong> If >80% of the fragmented IC's positions individually contact a sector position → <strong>co-sector</strong>. Otherwise → <strong>orphan</strong>.</p>
   </div>
-  <p class="stagger">The defining criterion is physical connectivity alone. We tested phylogenetic separation (η², the fraction of IC-projection variance explained by taxonomy) as a second classifier but rejected it. The decisive case is CM AroQ (PF01817): an all-bacterial family where every IC has η² > 0.02 because functional and phylogenetic divergence are correlated. The connected ICs are still sectors — they control substrate binding and catalytic geometry. Making η² a classifier would misclassify them.</p>
+  <p class="stagger">The defining criterion is physical connectivity alone. Averaging over multiple structures produces a contact probability matrix that is robust to crystallographic artifacts and conformational variation. Positions in contact across most structures reflect constitutive architecture; positions in contact in only one structure may reflect a specific conformational state. When a user specifies a particular PDB in <code>sca_inspect</code>, single-structure contacts from that PDB replace the averaged map — this allows state-specific analysis (e.g., a G protein sector that is connected in the GTP-bound state but fragmented in the GDP-bound state).</p>
+  <p class="stagger">We tested phylogenetic separation (η², the fraction of IC-projection variance explained by taxonomy) as a second classifier but rejected it. The decisive case is CM AroQ (PF01817): an all-bacterial family where every IC has η² > 0.02 because functional and phylogenetic divergence are correlated. The connected ICs are still sectors — they control substrate binding and catalytic geometry. Making η² a classifier would misclassify them.</p>
   <div class="key-finding stagger">
     <p><strong>Phylogeny as metadata, not classification.</strong> η² is computed for every IC and reported in the annotation — "IC2 (sector, η²=0.002, not phylogenetic)" vs "IC1 (co-sector, η²=0.085, Metazoa-enriched)" — but the sector/co-sector label comes from connectivity only.</p>
   </div>
@@ -163,26 +165,57 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--code-bg);padding:
     </table>
   </div>
   <p class="stagger">IC2 and IC5 are the functional sectors — fully connected, η² near zero. IC1 and IC6 are co-sectors — fragmented, phylogenetically segregating, physically surrounding the sectors at backbone distance. IC3 and IC4 are connected but phylogenetically segregating — the "blue sector" of Halabi et al. is not a third functional mode but a composite of lineage-specific tuning elements. This refinement required expert analysis in the original work; the automated pipeline identifies it from connectivity and η² metadata alone.</p>
+
+  <h4 class="stagger">Contact probability improves classification</h4>
+  <p class="stagger">Averaging contacts over 17 diverse S1A PDB structures produces cleaner classifications than any single structure. IC1 reclassifies from co-sector (connectivity 0.29 in one structure) to sector (0.95 averaged) — positions that appeared disconnected in a single crystal form are connected across the structural ensemble. IC5 drops from sector (0.94 in one structure) to fragmented (0.33 averaged) — a marginal classification that does not survive the ensemble test. The core sectors (IC2, IC3, IC4) are unchanged.</p>
+
+  <div class="table-wrap stagger">
+    <table>
+      <tr><th>IC</th><th>Single structure</th><th>P<sub>contact</sub> (17 PDBs)</th></tr>
+      <tr><td><span class="ic-label ic-sector">IC1</span></td><td>CO-SECTOR (conn=0.29)</td><td class="good">SECTOR (conn=0.95)</td></tr>
+      <tr><td><span class="ic-label ic-sector">IC2</span></td><td>SECTOR (1.00)</td><td class="good">SECTOR (1.00)</td></tr>
+      <tr><td><span class="ic-label ic-sector">IC3</span></td><td>SECTOR (0.62)</td><td class="good">SECTOR (0.64)</td></tr>
+      <tr><td><span class="ic-label ic-sector">IC4</span></td><td>SECTOR (1.00)</td><td class="good">SECTOR (1.00)</td></tr>
+      <tr><td><span class="ic-label ic-borderline">IC5</span></td><td>SECTOR (0.94)</td><td class="neutral">fragmented (0.33)</td></tr>
+      <tr><td><span class="ic-label ic-cosector">IC6</span></td><td>CO-SECTOR (0.40)</td><td class="neutral">fragmented (0.40)</td></tr>
+    </table>
+  </div>
+
+  <p class="stagger">This is the right behavior: P<sub>contact</sub> captures the conformational repertoire of the family, not one crystallographic snapshot. Positions that are in contact across most structures are reliably close; positions in contact in only one structure may reflect a specific conformational state. The ensemble-averaged classification is the family-level ground truth.</p>
   <h4 class="stagger">Additional families</h4>
   <p class="stagger"><strong>CM AroQ</strong> (PF01817, 12,678 seqs): All ICs have η² > 0.02 (bacterial family). Connectivity separates 4 sectors from 2 co-sectors. Proves η² cannot be a classifier. <strong>SH3</strong> (PF00018, 168,846 seqs): No IC separates by phylogeny (all η² < 0.003). Recovers 78% of hand-analyzed sector positions. IC4 = RT loop, IC6 = hydrophobic core. <strong>PF00296</strong> (AMP-binding, 62,992 seqs): All 6 ICs pass signal quality. IC2 separates luciferases from acyl-CoA synthetases. ATS mapping failed (first MSA sequence misaligns to reference PDB) — requires ggsearch36-based reference selection in Pass 2.</p>
 </section>
 
-<!-- ===== SECTION 6: TWO-PASS ARCHITECTURE ===== -->
+<!-- ===== SECTION 6: PIPELINE ARCHITECTURE ===== -->
 <section class="scene" id="s6">
-  <h2 class="stagger">Section 6 · Two-pass Pfam-wide production</h2>
-  <h3 class="stagger">IC decomposition first, then structure-informed enrichment</h3>
+  <h2 class="stagger">Section 6 · The production pipeline</h2>
+  <h3 class="stagger">Four structural improvements beyond the basic decomposition</h3>
   <div class="comparison stagger">
     <div class="comparison-box pass1">
-      <h4>Pass 1 — from the MSA</h4>
-      <p>IC positions, loadings, per-protein amino acid identity, phylogenetic η². Alignment column numbering. No structure needed. Enough for the ℒ<sub>sector</sub> loss and the basic IC text annotation. Unblocks Run 2.</p>
+      <h4>Pass 1 — from the MSA alone</h4>
+      <p>IC positions, loadings, per-protein amino acid identity, phylogenetic η². Alignment column numbering. 20,011 families completed. Enough for the ℒ<sub>sector</sub> loss and the basic IC text annotation.</p>
     </div>
     <div class="comparison-box pass2">
-      <h4>Pass 2 — from the structure</h4>
-      <p>ATS mapping (ggsearch36 + SIFTS). Physical connectivity → sector/co-sector labels. Active site correspondence. PDB residue numbering. Functional annotation per IC. Enriches the text annotation progressively.</p>
+      <h4>Pass 2 — structurally informed</h4>
+      <p>PDB-linked sequence retention. Alignment-based ATS mapping. P<sub>contact</sub> from multiple structures. AlphaFold2 fallback. Domain extension. Sector/co-sector labels with structure source tracking.</p>
     </div>
   </div>
+
+  <h4 class="stagger">Improvement 1: Retain PDB-linked sequences</h4>
+  <p class="stagger">During MSA preprocessing, large families are subsampled to reduce redundancy. This can remove sequences whose UniProt accessions have experimental PDB structures — exactly the sequences needed for alignment-to-structure (ATS) mapping. The fix: cross-reference every MSA header against the SIFTS database (1.08M PDB–UniProt–Pfam mappings) and protect PDB-linked sequences from the gap-fraction filter. They are always retained in the filtered MSA.</p>
+
+  <h4 class="stagger">Improvement 2: Alignment-based ATS mapping</h4>
+  <p class="stagger">Pass 1 used sequential ATS mapping — filtered MSA position 0 → PDB residue 1, position 1 → residue 2. This is wrong whenever the MSA and PDB have different lengths or boundary offsets. Pass 2 uses proper alignment: find the PDB chain's UniProt accession in the MSA, read its gapped sequence, and map each non-gap character to the corresponding PDB residue via Smith-Waterman alignment. The gapped reference row is stored in each JSON (<code>ref_gapped_row</code>) so that ATS mapping is available without re-extracting the MSA.</p>
+
+  <h4 class="stagger">Improvement 3: Contact probability matrices</h4>
+  <p class="stagger">Single-structure binary contacts can misclassify ICs that are connected in some conformational states but not others. For families with multiple PDB structures, up to 15–20 sequence-diverse representatives are downloaded, contacts computed in each, and averaged in MSA column space to produce P<sub>contact</sub>(i,j). The S1A validation (17 structures) showed that P<sub>contact</sub> reclassifies IC1 from co-sector to sector (connectivity 0.29 → 0.95) and correctly identifies IC5 as fragmented (0.94 → 0.33).</p>
+
+  <h4 class="stagger">Improvement 4: AlphaFold2 for families without experimental structures</h4>
+  <p class="stagger">~8,000 of the 20,011 SCA families have no experimental PDB structure. For these, AlphaFold2 predicted structures are downloaded from the AlphaFold DB, trimmed to the Pfam domain boundaries (AlphaFold numbering = UniProt numbering, so the trim is an integer range filter on residue numbers), and filtered for confidence (mean domain pLDDT > 70). Families below the confidence threshold receive ICs but no structural classification, with an explicit flag (<code>structure_source: "none"</code>) so users know classification is unavailable and why.</p>
+
+  <p class="stagger">Every JSON result tracks the structure source: <code>"experimental"</code>, <code>"alphafold2"</code> (with pLDDT reported), or <code>"none"</code>. The annotation engine and the <code>sca_inspect</code> MCP tool both read this field to report classification reliability.</p>
+
   <p class="stagger">PDB numbering matters for a specific reason: the scientific literature describes protein positions using PDB residue numbers. "His57, Asp102, Ser195" is how every biochemist identifies the serine protease catalytic triad. If we upgrade the text encoder to a model trained on scientific textbooks and papers — SciLitLLM-7B, trained on 73K textbooks and 625K research papers — that model will understand PDB numbering. The annotation should speak the same language as the literature.</p>
-  <p class="stagger">The Pfam-A database is already downloaded on Spark, and ggsearch36 is available as an SCA dependency. Pass 1 is an overnight batch job on a single GPU (~1–2 hours for ~20K families). Pass 2 runs in parallel, enriching annotations as ATS mappings complete.</p>
 </section>
 
 <!-- ===== SECTION 7: TEXT ANNOTATION ===== -->
@@ -228,27 +261,31 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--code-bg);padding:
 
 <!-- ===== SECTION 10: STATUS ===== -->
 <section class="scene" id="s10">
-  <h2 class="stagger">Section 10 · Status and path forward</h2>
-  <h3 class="stagger">Three parallel workstreams converging on a controlled experiment</h3>
+  <h2 class="stagger">Section 10 · Status</h2>
+  <h3 class="stagger">Pass 1 complete, Pass 2 running, contact probabilities validated</h3>
   <div class="table-wrap stagger">
     <table>
       <tr><th>Work item</th><th>Status</th><th>Output</th></tr>
-      <tr><td><strong>Workstream 1:</strong> PenCL Run 1 (no sectors)</td><td class="neutral">Debug on Aurora</td><td>49.8M corpus staged on /flare, XPU port applied, debug job submitted</td></tr>
+      <tr><td><strong>Workstream 1:</strong> PenCL Run 1 (no sectors)</td><td class="good">48-tile confirmed</td><td>12-tile and 48-tile training on Aurora, all 4 losses computing, production prep underway</td></tr>
       <tr><td><strong>2a:</strong> pySCA framework</td><td class="good">Complete</td><td>GPU-accelerated SCA + classify + annotate on Spark</td></tr>
       <tr><td><strong>2b:</strong> Validation (4 families)</td><td class="good">Complete</td><td>S1A, CM, SH3, PF00296 — IC hierarchy confirmed</td></tr>
-      <tr><td><strong>2c:</strong> Pass 1 batch runner</td><td class="neutral">Building</td><td>SCA over ~20K families (est. 1–2 h, Spark GPU)</td></tr>
-      <tr><td><strong>2d:</strong> Pass 2 ATS mapping</td><td class="neutral">In parallel</td><td>ggsearch36 + SIFTS for PDB numbering, connectivity</td></tr>
-      <tr><td><strong>2e:</strong> Annotation + ℒ<sub>sector</sub></td><td>Pending 2c</td><td>Per-protein SECTOR field + IC matrix files</td></tr>
-      <tr><td><strong>2f:</strong> PenCL Run 2 (with sectors)</td><td>Pending 2e</td><td>Same corpus + SECTOR + ℒ<sub>sector</sub></td></tr>
+      <tr><td><strong>2c:</strong> Pass 1 batch</td><td class="good">Complete</td><td>20,011 families, 93M annotations, 19,578 IC matrices</td></tr>
+      <tr><td><strong>2d:</strong> Pass 2 (PDB retention + ATS)</td><td class="neutral">Running</td><td>PDB-linked sequence retention, ref_gapped_row in JSONs, alignment-based ATS</td></tr>
+      <tr><td><strong>2e:</strong> P<sub>contact</sub> matrices</td><td class="good">Validated</td><td>S1A test (17 structures) shows cleaner classification. Production queued after Pass 2.</td></tr>
+      <tr><td><strong>2f:</strong> Domain extension</td><td class="neutral">In progress</td><td>Detection from actual PDB chain lengths (not SIFTS columns). Re-run on subset.</td></tr>
+      <tr><td><strong>2g:</strong> AlphaFold2 fallback</td><td class="neutral">Designed</td><td>~8K families without PDB. Domain-trimmed AF2, pLDDT > 70 filter.</td></tr>
+      <tr><td><strong>2h:</strong> sca_inspect MCP tool</td><td class="good">Live</td><td>EC2 + Spark 1 + Spark 2. Dual-mode: P<sub>contact</sub> default, single-PDB override.</td></tr>
+      <tr><td><strong>2i:</strong> SECTOR merge + ℒ<sub>sector</sub></td><td>Pending 2d</td><td>Per-protein SECTOR field into pfam_enriched_v3.csv</td></tr>
       <tr><td><strong>Workstream 3:</strong> Text encoder eval</td><td>Designed</td><td>SciLitLLM-7B vs PubMedBERT — 4 empirical tests</td></tr>
       <tr><td><strong>Run 1 vs Run 2</strong></td><td>Pending</td><td>Embedding geometry + ProteoScribe validation</td></tr>
     </table>
   </div>
-  <p class="stagger">Workstream 1 trains on Aurora (4 nodes, 24 GPU tiles, bf16-mixed, per-batch stochastic dropout) while workstream 2 completes on the DGX Spark (Pfam-A database already downloaded, ggsearch36 available). Workstream 3 (SciLitLLM-7B evaluation) runs on Spark in sequence with SCA. When Run 1 and the IC annotations are both ready, Run 2 launches — identical corpus plus the SECTOR text field and the ℒ<sub>sector</sub> loss.</p>
+  <p class="stagger">Pass 1 delivered the IC decomposition for all 20,011 families — the positions, loadings, per-protein motifs, and phylogenetic enrichment that define the training signal for ℒ<sub>sector</sub>. Pass 2 adds structural validation: PDB-linked sequences are retained during filtering, alignment-based ATS replaces the sequential assumption, and contact probability matrices from multiple PDB structures produce ensemble-averaged sector classifications. For the ~8,000 families without experimental structures, AlphaFold2 predictions extend classification coverage with explicit confidence tracking.</p>
+  <p class="stagger">The <code>sca_inspect</code> MCP tool is live on all three servers (EC2, Spark 1, Spark 2), providing interactive sector analysis for any of the 20,011 families. Users can specify a PDB for state-specific analysis or let the tool use the averaged P<sub>contact</sub> for the family-level classification. The tool reports structure source (experimental, AlphaFold2, or none) so users know the basis of every classification.</p>
   <div class="callout stagger">
     <p><strong>The convergence point.</strong> Run 1 answers: does text diversity fix format memorization? Run 2 answers: does IC-level architecture add functional structure to the embedding space? Together they determine whether BioM3 can generate proteins from natural language prompts of arbitrary format, with designs that respect the coevolutionary architecture of the target family.</p>
   </div>
-  <p class="stagger chapter-nav">Part of the generalization-preserving fine-tuning series · Ranganathan Lab · April 2026</p>
+  <p class="stagger chapter-nav">Ranganathan Lab · April 2026</p>
 </section>
 
 <script>
